@@ -14,7 +14,7 @@ const getFileIcon = (type: Evidence['type']) => {
 
 const getStatusBadge = (status: Evidence['status']) => {
   return (
-    <span className="px-1.5 py-0.5 text-[10px] font-medium border border-gray-300 text-gray-600">
+    <span className="px-1.5 py-0.5 text-[10px] font-medium border border-gray-300 text-gray-600 rounded">
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
@@ -38,7 +38,7 @@ export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplo
             <button
               key={evidence.id}
               onClick={() => onFileSelect?.(evidence)}
-              className={`w-full text-left px-3 py-2 border transition-colors ${
+              className={`w-full text-left px-3 py-2 border rounded-md transition-colors ${
                 selectedFileId === evidence.id
                   ? 'bg-gray-50 border-gray-900'
                   : 'bg-white border-transparent hover:border-gray-200'
@@ -69,7 +69,7 @@ export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplo
 
       {/* Footer */}
       <div className="flex-shrink-0 px-4 py-2.5 border-t border-gray-200">
-        <button className="w-full px-3 py-1.5 text-xs font-medium text-white bg-black border border-black hover:bg-gray-900 transition-colors">
+        <button className="w-full px-3 py-1.5 text-xs font-medium text-white bg-black border border-black rounded-md hover:bg-gray-900 transition-colors">
           Upload
         </button>
       </div>

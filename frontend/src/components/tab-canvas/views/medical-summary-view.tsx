@@ -46,22 +46,22 @@ export default function MedicalSummaryView() {
 
         {/* Key Metrics */}
         <div className="grid grid-cols-4 gap-4">
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Total Medical Bills</div>
             <div className="text-lg font-semibold text-gray-900">{formatCurrency(totalBilled)}</div>
             <div className="text-[10px] text-gray-500 mt-1">{medicalBilling.length} line items</div>
           </div>
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Treatment Duration</div>
             <div className="text-lg font-semibold text-gray-900">8 weeks</div>
             <div className="text-[10px] text-gray-500 mt-1">Jan 15 - Mar 15</div>
           </div>
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Provider Visits</div>
             <div className="text-lg font-semibold text-gray-900">28</div>
             <div className="text-[10px] text-gray-500 mt-1">24 PT + 4 MD</div>
           </div>
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Treatment Gaps</div>
             <div className="text-lg font-semibold text-gray-900">3</div>
             <div className="text-[10px] text-gray-500 mt-1">All defensible</div>
@@ -69,7 +69,7 @@ export default function MedicalSummaryView() {
         </div>
 
         {/* Itemized Medical Bills */}
-        <div className="border border-gray-200">
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Itemized Medical Billing</h2>
           </div>
@@ -96,7 +96,7 @@ export default function MedicalSummaryView() {
                     <td className="px-4 py-2 text-gray-600 font-mono text-[10px]">{bill.icd}</td>
                     <td className="px-4 py-2 text-right text-gray-900 font-semibold">{formatCurrency(bill.amount)}</td>
                     <td className="px-4 py-2 text-center">
-                      <span className="px-2 py-0.5 text-[10px] border border-gray-300 text-gray-600">{bill.status}</span>
+                      <span className="px-2 py-0.5 text-[10px] border border-gray-300 rounded text-gray-600">{bill.status}</span>
                     </td>
                   </tr>
                 ))}
@@ -111,7 +111,7 @@ export default function MedicalSummaryView() {
         </div>
 
         {/* Diagnoses */}
-        <div className="border border-gray-200">
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Primary Diagnoses</h2>
           </div>
@@ -130,7 +130,7 @@ export default function MedicalSummaryView() {
                   <td className="px-4 py-3 font-mono text-gray-900">{dx.icd}</td>
                   <td className="px-4 py-3 text-gray-900">{dx.diagnosis}</td>
                   <td className="px-4 py-3">
-                    <span className="px-2 py-0.5 border border-gray-300 text-[10px] text-gray-600">{dx.severity}</span>
+                    <span className="px-2 py-0.5 border border-gray-300 rounded text-[10px] text-gray-600">{dx.severity}</span>
                   </td>
                   <td className="px-4 py-3 text-gray-700">{dx.status}</td>
                 </tr>
@@ -140,16 +140,16 @@ export default function MedicalSummaryView() {
         </div>
 
         {/* Treatment Gaps */}
-        <div className="border border-gray-200">
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Treatment Gap Analysis</h2>
           </div>
           <div className="p-4 space-y-3">
             {treatmentGaps.map((gap) => (
-              <div key={gap.number} className="border border-gray-200 p-3">
+              <div key={gap.number} className="border border-gray-200 rounded-md p-3">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 border border-gray-300 flex items-center justify-center text-xs font-semibold">
+                    <span className="w-6 h-6 border border-gray-300 rounded flex items-center justify-center text-xs font-semibold">
                       {gap.number}
                     </span>
                     <div>
@@ -157,10 +157,10 @@ export default function MedicalSummaryView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] px-2 py-0.5 border border-gray-300 text-gray-600">
+                    <span className="text-[10px] px-2 py-0.5 border border-gray-300 rounded text-gray-600">
                       {gap.defensible ? 'Defensible' : 'Problematic'}
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 border border-gray-300 text-gray-600">
+                    <span className="text-[10px] px-2 py-0.5 border border-gray-300 rounded text-gray-600">
                       Risk: {gap.risk}
                     </span>
                   </div>
@@ -174,7 +174,7 @@ export default function MedicalSummaryView() {
         </div>
 
         {/* Summary */}
-        <div className="border border-gray-200 p-4">
+        <div className="border border-gray-200 rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Summary Assessment</h2>
           <ul className="space-y-2 text-xs text-gray-700">
             <li>• Strong causal link established between accident and all diagnosed injuries</li>

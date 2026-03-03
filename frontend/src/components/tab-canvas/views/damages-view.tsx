@@ -54,26 +54,26 @@ export default function DamagesView() {
 
         {/* Key Metrics */}
         <div className="grid grid-cols-4 gap-4">
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Total Exposure</div>
             <div className="text-lg font-semibold text-gray-900">{formatCurrency(currentTotal)}</div>
           </div>
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Settlement Target</div>
             <div className="text-lg font-semibold text-gray-900">{formatCurrency((mockDamages.settlementRange.low + mockDamages.settlementRange.high) / 2)}</div>
           </div>
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Success Rate</div>
             <div className="text-lg font-semibold text-gray-900">{currentScenario.probability}%</div>
           </div>
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Economic Damages</div>
             <div className="text-lg font-semibold text-gray-900">{formatCurrency(currentScenario.medical + currentScenario.wages)}</div>
           </div>
         </div>
 
         {/* Damages Breakdown Table */}
-        <div className="border border-gray-200">
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Damages Breakdown</h2>
           </div>
@@ -111,7 +111,7 @@ export default function DamagesView() {
         </div>
 
         {/* Scenario Analysis */}
-        <div className="border border-gray-200">
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Scenario Analysis</h2>
           </div>
@@ -121,7 +121,7 @@ export default function DamagesView() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setSelectedScenario('worst')}
-                  className={`px-3 py-1 text-[10px] font-medium border transition-colors uppercase ${
+                  className={`px-3 py-1 text-[10px] font-medium border rounded-md transition-colors uppercase ${
                     selectedScenario === 'worst'
                       ? 'bg-black text-white border-black'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
@@ -131,7 +131,7 @@ export default function DamagesView() {
                 </button>
                 <button
                   onClick={() => setSelectedScenario('base')}
-                  className={`px-3 py-1 text-[10px] font-medium border transition-colors uppercase ${
+                  className={`px-3 py-1 text-[10px] font-medium border rounded-md transition-colors uppercase ${
                     selectedScenario === 'base'
                       ? 'bg-black text-white border-black'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
@@ -141,7 +141,7 @@ export default function DamagesView() {
                 </button>
                 <button
                   onClick={() => setSelectedScenario('best')}
-                  className={`px-3 py-1 text-[10px] font-medium border transition-colors uppercase ${
+                  className={`px-3 py-1 text-[10px] font-medium border rounded-md transition-colors uppercase ${
                     selectedScenario === 'best'
                       ? 'bg-black text-white border-black'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
@@ -191,7 +191,7 @@ export default function DamagesView() {
         </div>
 
         {/* Client Net Recovery Calculator */}
-        <div className="border border-gray-200">
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Client Net Recovery Calculator</h2>
           </div>
@@ -238,7 +238,7 @@ export default function DamagesView() {
                 <span className="text-gray-700">Less: Trial Costs</span>
                 <span className="text-gray-600">-{formatCurrency(trialCosts)}</span>
               </div>
-              <div className="flex justify-between py-3 border-2 border-gray-900 bg-gray-50 px-3">
+              <div className="flex justify-between py-3 border-2 border-gray-900 rounded-md bg-gray-50 px-3">
                 <span className="font-semibold text-gray-900">Client Net Recovery</span>
                 <span className="text-lg font-bold text-gray-900">{formatCurrency(netRecovery)}</span>
               </div>
@@ -247,7 +247,7 @@ export default function DamagesView() {
         </div>
 
         {/* Settlement Range */}
-        <div className="border border-gray-200 p-4">
+        <div className="border border-gray-200 rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Settlement Valuation Range</h2>
           <div className="grid grid-cols-3 gap-4 text-xs">
             <div>
@@ -269,7 +269,7 @@ export default function DamagesView() {
         </div>
 
         {/* Recommendations */}
-        <div className="border border-gray-200 p-4">
+        <div className="border border-gray-200 rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Settlement Recommendations</h2>
           <ul className="space-y-2 text-xs text-gray-700">
             <li>• Initial demand: {formatCurrency(mockDamages.settlementRange.high)}</li>

@@ -86,7 +86,7 @@ export default function InterfaceLayout() {
       <header className="flex-shrink-0 bg-white border-b border-gray-200">
         <div className="flex items-center justify-between px-6 py-3">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 bg-black rounded flex items-center justify-center">
+            <div className="w-7 h-7 bg-black rounded-md flex items-center justify-center">
               <span className="text-white font-bold text-sm">L</span>
             </div>
             <div>
@@ -98,7 +98,7 @@ export default function InterfaceLayout() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowExplorer(!showExplorer)}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium border transition-colors ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-md transition-colors ${
                 showExplorer
                   ? 'bg-black text-white border-black'
                   : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
@@ -109,7 +109,7 @@ export default function InterfaceLayout() {
             </button>
             <button
               onClick={() => setShowVoiceChat(!showVoiceChat)}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium border transition-colors ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-md transition-colors ${
                 showVoiceChat
                   ? 'bg-black text-white border-black'
                   : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'

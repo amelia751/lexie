@@ -14,29 +14,29 @@ export default function CaseSummaryView() {
 
         {/* Key Details Grid */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Plaintiff</div>
             <p className="text-sm font-medium text-gray-900">{mockCaseSummary.plaintiffName}</p>
           </div>
 
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Incident Date</div>
             <p className="text-sm font-medium text-gray-900">{mockCaseSummary.incidentDate}</p>
           </div>
 
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Status</div>
             <p className="text-sm font-medium text-gray-900">{mockCaseSummary.status}</p>
           </div>
 
-          <div className="border border-gray-200 p-4">
+          <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Estimated Value</div>
             <p className="text-sm font-semibold text-gray-900">{mockCaseSummary.estimatedValue}</p>
           </div>
         </div>
 
         {/* Case Narrative */}
-        <div className="border border-gray-200 p-6">
+        <div className="border border-gray-200 rounded-lg p-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Case Narrative</h2>
           <div className="prose prose-sm max-w-none">
             {mockCaseSummary.narrative.split('\n\n').map((paragraph, index) => (
@@ -48,7 +48,7 @@ export default function CaseSummaryView() {
         </div>
 
         {/* Key Observations */}
-        <div className="border border-gray-200 p-6">
+        <div className="border border-gray-200 rounded-lg p-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Key Observations</h2>
           <ul className="space-y-2 text-xs text-gray-700">
             <li className="flex items-start gap-2">

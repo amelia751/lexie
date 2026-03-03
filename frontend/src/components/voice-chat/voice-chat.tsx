@@ -56,7 +56,7 @@ export default function VoiceChat() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsMuted(!isMuted)}
-              className="p-1 border border-gray-300 hover:border-gray-400 transition-colors"
+              className="p-1 border border-gray-300 rounded hover:border-gray-400 transition-colors"
               title={isMuted ? 'Unmute' : 'Mute'}
             >
               {isMuted ? (
@@ -73,7 +73,7 @@ export default function VoiceChat() {
       <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
-            <div className="w-12 h-12 border-2 border-gray-300 flex items-center justify-center mb-4">
+            <div className="w-12 h-12 border-2 border-gray-300 rounded-lg flex items-center justify-center mb-4">
               <Phone className="w-6 h-6 text-gray-400" />
             </div>
             <h3 className="text-sm font-semibold text-gray-900 mb-2">No Active Session</h3>
@@ -89,7 +89,7 @@ export default function VoiceChat() {
                 className={`flex ${message.role === 'agent' ? 'justify-start' : 'justify-end'}`}
               >
                 <div
-                  className={`max-w-[80%] px-3 py-2 border ${
+                  className={`max-w-[80%] px-3 py-2 border rounded-lg ${
                     message.role === 'agent'
                       ? 'bg-white border-gray-300 text-gray-900'
                       : 'bg-black border-black text-white'
@@ -117,7 +117,7 @@ export default function VoiceChat() {
           <button
             onClick={handleToggleListening}
             disabled={isSimulating}
-            className={`relative w-16 h-16 border-2 flex items-center justify-center transition-all ${
+            className={`relative w-16 h-16 border-2 rounded-xl flex items-center justify-center transition-all ${
               isListening
                 ? 'bg-black border-black'
                 : 'bg-white border-gray-300 hover:border-gray-400'
@@ -126,8 +126,8 @@ export default function VoiceChat() {
             {/* Pulse rings when listening */}
             {isListening && (
               <>
-                <div className="absolute inset-0 border-2 border-black animate-pulse-ring"></div>
-                <div className="absolute inset-0 border-2 border-black animate-pulse-ring" style={{ animationDelay: '1s' }}></div>
+                <div className="absolute inset-0 border-2 border-black rounded-xl animate-pulse-ring"></div>
+                <div className="absolute inset-0 border-2 border-black rounded-xl animate-pulse-ring" style={{ animationDelay: '1s' }}></div>
               </>
             )}
 

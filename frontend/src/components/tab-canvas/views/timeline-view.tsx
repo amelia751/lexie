@@ -97,7 +97,7 @@ export default function TimelineView() {
         </div>
 
         {/* Filters */}
-        <div className="border border-gray-200 p-3">
+        <div className="border border-gray-200 rounded-lg p-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Filter:</span>
             <div className="flex gap-2">
@@ -105,7 +105,7 @@ export default function TimelineView() {
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-2 py-1 text-[10px] font-medium border transition-colors uppercase ${
+                  className={`px-2 py-1 text-[10px] font-medium border rounded-md transition-colors uppercase ${
                     selectedCategory === cat
                       ? 'bg-black text-white border-black'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
@@ -121,7 +121,7 @@ export default function TimelineView() {
         {/* Timeline */}
         <div className="space-y-4">
           {filteredTimeline.map((event, index) => (
-            <div key={index} className="border border-gray-200 p-4">
+            <div key={index} className="border border-gray-200 rounded-lg p-4">
               <div className="flex items-start justify-between gap-4 mb-2">
                 <div className="flex items-center gap-3">
                   <div className="text-xs font-semibold text-gray-900">
@@ -135,7 +135,7 @@ export default function TimelineView() {
                     {event.time}
                   </div>
                 </div>
-                <div className="px-2 py-0.5 border border-gray-300 text-[10px] font-medium text-gray-600 uppercase">
+                <div className="px-2 py-0.5 border border-gray-300 rounded text-[10px] font-medium text-gray-600 uppercase">
                   {event.category}
                 </div>
               </div>
@@ -150,7 +150,7 @@ export default function TimelineView() {
         </div>
 
         {/* Summary */}
-        <div className="border border-gray-200 p-4">
+        <div className="border border-gray-200 rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Timeline Summary</h2>
           <ul className="space-y-2 text-xs text-gray-700">
             <li>• Total duration: 59 days (Jan 15 - Mar 15, 2024)</li>
