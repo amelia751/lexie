@@ -95,38 +95,6 @@ export default function MedicalSummaryView() {
           <p className="text-xs text-gray-500 mt-1">Case PI-2024-001234 • Sarah Johnson • DOI: January 15, 2024</p>
         </div>
 
-        {/* Permanent Impairment & MMI */}
-        <div className="border border-gray-200 rounded-lg">
-          <div className="border-b border-gray-200 px-4 py-3 bg-gray-50 rounded-t-lg">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Permanent Impairment & Maximum Medical Improvement</h2>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-4 gap-6 mb-6">
-              <div>
-                <div className="text-[10px] font-semibold text-gray-500 uppercase mb-2">Whole Person Rating</div>
-                <div className="text-xl font-bold text-gray-900">{permanentImpairment.wholePersonRating}%</div>
-              </div>
-              <div>
-                <div className="text-[10px] font-semibold text-gray-500 uppercase mb-2">Regional Ratings</div>
-                <div className="text-sm font-medium text-gray-900">{permanentImpairment.regionRating}</div>
-              </div>
-              <div>
-                <div className="text-[10px] font-semibold text-gray-500 uppercase mb-2">Methodology</div>
-                <div className="text-sm font-medium text-gray-900">{permanentImpairment.methodology}</div>
-              </div>
-              <div>
-                <div className="text-[10px] font-semibold text-gray-500 uppercase mb-2">MMI Date</div>
-                <div className="text-sm font-medium text-gray-900">{permanentImpairment.mmiDate}</div>
-              </div>
-            </div>
-            <div className="border-t border-gray-200 pt-4">
-              <div className="text-[10px] font-semibold text-gray-500 uppercase mb-2">Prognosis</div>
-              <p className="text-xs text-gray-700 leading-relaxed">{permanentImpairment.prognosis}</p>
-              <div className="text-[10px] text-gray-500 mt-3">Evaluator: {permanentImpairment.evaluator}</div>
-            </div>
-          </div>
-        </div>
-
         {/* Medical Liens */}
         <div className="border border-gray-200 rounded-lg">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50 rounded-t-lg">
