@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import EvidenceViewer from '@/components/evidence-viewer/evidence-viewer';
+import { getEvidenceDocument } from '@/lib/evidence-mapping';
 
 type EventCategory = 'all' | 'incident' | 'medical' | 'legal' | 'insurance';
 
 export default function TimelineView() {
   const [selectedCategory, setSelectedCategory] = useState<EventCategory>('all');
+  const [viewingEvidence, setViewingEvidence] = useState<{ source: string; url: string; type: 'pdf' | 'image' } | null>(null);
 
   const detailedTimeline = [
     {
@@ -14,6 +17,14 @@ export default function TimelineView() {
       event: 'Motor Vehicle Accident',
       description: 'Plaintiff vehicle stopped at red light. Defendant vehicle failed to stop, rear-ended plaintiff at estimated 25-30 mph.',
       source: 'Police Report #2024-1234',
+      category: 'incident' as const,
+    },
+    {
+      date: '2024-01-15',
+      time: '15:35',
+      event: 'Accident Scene Documentation',
+      description: 'Photos taken by responding officer showing vehicle positions, damage, and intersection layout. Rear damage to plaintiff vehicle consistent with high-speed impact.',
+      source: 'Accident Scene Photos',
       category: 'incident' as const,
     },
     {
@@ -193,14 +204,35 @@ export default function TimelineView() {
               </div>
               <h3 className="text-sm font-semibold text-gray-900 mb-2">{event.event}</h3>
               <p className="text-xs text-gray-700 leading-relaxed mb-3">{event.description}</p>
-              <div className="pt-2 border-t border-gray-200">
-                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Source: </span>
-                <span className="text-[10px] text-gray-700">{event.source}</span>
+              <div className="pt-2 border-t border-gray-200 flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Source:</span>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const doc = getEvidenceDocument(event.source);
+                    if (doc) {
+                      setViewingEvidence({ source: event.source, url: doc.url, type: doc.type });
+                    }
+                  }}
+                  className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                >
+                  {event.source}
+                </button>
               </div>
             </div>
           ))}
         </div>
       </div>
+
+      {/* Evidence Viewer Modal */}
+      {viewingEvidence && (
+        <EvidenceViewer
+          source={viewingEvidence.source}
+          url={viewingEvidence.url}
+          type={viewingEvidence.type}
+          onClose={() => setViewingEvidence(null)}
+        />
+      )}
     </div>
   );
 }

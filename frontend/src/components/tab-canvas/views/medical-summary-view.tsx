@@ -1,6 +1,11 @@
 'use client';
 
+import { useState } from 'react';
+import EvidenceViewer from '@/components/evidence-viewer/evidence-viewer';
+import { getEvidenceDocument } from '@/lib/evidence-mapping';
+
 export default function MedicalSummaryView() {
+  const [viewingEvidence, setViewingEvidence] = useState<{ source: string; url: string; type: 'pdf' | 'image' } | null>(null);
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -305,6 +310,16 @@ export default function MedicalSummaryView() {
           </div>
         </div>
       </div>
+
+      {/* Evidence Viewer Modal */}
+      {viewingEvidence && (
+        <EvidenceViewer
+          source={viewingEvidence.source}
+          url={viewingEvidence.url}
+          type={viewingEvidence.type}
+          onClose={() => setViewingEvidence(null)}
+        />
+      )}
     </div>
   );
 }
