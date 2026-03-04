@@ -139,10 +139,73 @@ export const mockDamages: DamagesCalculation = {
   probability: 72,
 };
 
+export const mockDamagesExtended = {
+  // Past Economic Damages
+  pastMedicalExpenses: 48200,
+  pastLostWages: 12400,
+  propertyDamage: 8500,
+  
+  // Future Economic Damages
+  futureMedicalExpenses: 15000,
+  futureLostEarningCapacity: 0,
+  
+  // Non-Economic Damages
+  painAndSuffering: 85000,
+  
+  // Liens & Deductions
+  liens: {
+    medicareLien: 0,
+    medicaidLien: 0,
+    healthInsuranceSubrogation: 12450,
+    erisa: 0,
+    hospitalLien: 0,
+    totalLiens: 12450,
+  },
+  
+  // Permanent Impairment
+  permanentImpairment: {
+    rating: 0,
+    description: 'No permanent impairment. Full recovery expected.',
+    impactOnSettlement: 'neutral',
+  },
+  
+  // Comparable Verdicts in Jurisdiction
+  comparableVerdicts: [
+    {
+      caseType: 'Rear-end MVA - Whiplash',
+      jurisdiction: 'Los Angeles County',
+      year: 2023,
+      medicals: 52000,
+      verdict: 125000,
+      notes: 'Similar soft tissue injuries, 8 weeks treatment',
+    },
+    {
+      caseType: 'Rear-end MVA - Cervical Strain',
+      jurisdiction: 'Los Angeles County',
+      year: 2023,
+      medicals: 38000,
+      verdict: 95000,
+      notes: 'Grade II whiplash, no surgery',
+    },
+    {
+      caseType: 'Rear-end MVA - Whiplash + Lumbar',
+      jurisdiction: 'Orange County',
+      year: 2024,
+      medicals: 61000,
+      verdict: 142000,
+      notes: 'Comparable injuries, clear liability',
+    },
+  ],
+  
+  // Settlement Analysis
+  grossTotal: 169100,
+  netAfterLiens: 156650,
+};
+
 export const mockMedicalSummary = {
   totalBills: 48200,
   treatmentGaps: 3,
-  treatmentDuration: '6 weeks',
+  treatmentDuration: '8 weeks',
   keyDiagnoses: [
     'Cervical spine whiplash (Grade II)',
     'Lumbar strain',
@@ -154,6 +217,76 @@ export const mockMedicalSummary = {
     'Physical therapy showed gradual improvement',
     'No permanent impairment noted',
   ],
+};
+
+export const mockMedicalSummaryExtended = {
+  // Past Medical Expenses
+  pastMedicalTotal: 48200,
+  
+  // Future Medical Expenses
+  futureMedical: {
+    total: 15000,
+    breakdown: [
+      { item: 'Follow-up orthopedic visits (4x)', cost: 1200 },
+      { item: 'Maintenance physical therapy (12 sessions)', cost: 2400 },
+      { item: 'Potential trigger point injections', cost: 3500 },
+      { item: 'Annual monitoring (2 years)', cost: 600 },
+      { item: 'Medication/OTC pain management', cost: 1800 },
+      { item: 'Contingency for flare-ups', cost: 5500 },
+    ],
+    basis: 'Based on treating physician recommendations and similar case outcomes',
+    physicianSupport: true,
+  },
+  
+  // Permanent Impairment
+  permanentImpairment: {
+    wholePersonRating: 0,
+    regionRating: 'Cervical: 0% | Lumbar: 0%',
+    methodology: 'AMA Guides 5th Edition',
+    evaluator: 'Dr. Robert Chen, MD (Treating Orthopedist)',
+    date: '2024-03-15',
+    prognosis: 'Full recovery expected. Residual symptoms may persist intermittently but not permanent.',
+    maxMedicalImprovement: true,
+    mmiDate: '2024-03-15',
+  },
+  
+  // Medical Liens
+  liens: {
+    healthInsurance: {
+      carrier: 'Blue Cross Blue Shield',
+      amountPaid: 32500,
+      subrogationClaim: 12450,
+      negotiable: true,
+      estimatedReduction: '40-60%',
+      netLienEstimate: 6225,
+    },
+    medicare: null,
+    medicaid: null,
+    erisa: null,
+    hospitalLien: null,
+    totalLiens: 12450,
+    estimatedNetLiens: 6225,
+  },
+  
+  // Pre-existing Conditions
+  preExistingConditions: {
+    identified: false,
+    conditions: [],
+    analysis: 'Medical records review shows no documented pre-existing cervical or lumbar conditions. No prior chiropractic or orthopedic treatment in 5 years preceding accident.',
+    defenseRisk: 'Low',
+  },
+  
+  // Causation Analysis
+  causation: {
+    rating: 'Strong',
+    factors: [
+      'Immediate symptom onset post-collision',
+      'Mechanism of injury consistent with diagnoses',
+      'No gap between accident and initial treatment',
+      'No prior complaints of similar symptoms',
+      'Objective findings on imaging',
+    ],
+  },
 };
 
 export const mockConversation: VoiceMessage[] = [
@@ -207,6 +340,35 @@ export const mockCaseSummary = {
   status: 'Active - Discovery Phase',
   attorney: 'Unassigned',
   estimatedValue: '$85,000 - $130,000',
+  // New fields for legal completeness
+  defendant: {
+    name: 'Michael R. Thompson',
+    insuranceCarrier: 'State Farm Insurance',
+    policyNumber: 'SF-2024-8847291',
+    policyLimits: {
+      bodilyInjury: 100000,
+      perAccident: 300000,
+    },
+    adjusterName: 'Karen Williams',
+    adjusterPhone: '(555) 234-5678',
+    adjusterEmail: 'kwilliams@statefarm.com',
+  },
+  jurisdiction: {
+    state: 'California',
+    county: 'Los Angeles',
+    venue: 'Los Angeles Superior Court',
+  },
+  statuteOfLimitations: {
+    deadline: '2026-01-15',
+    type: 'Personal Injury',
+    yearsAllowed: 2,
+    daysRemaining: 320,
+  },
+  comparativeFault: {
+    plaintiffFault: 0,
+    defendantFault: 100,
+    analysis: 'Clear rear-end collision with defendant admission. No contributory negligence identified.',
+  },
   narrative: `On January 15, 2024, at approximately 3:30 PM, plaintiff Sarah Johnson was operating her vehicle while stopped at a red light at the intersection of Main Street and Oak Avenue. The defendant's vehicle failed to stop and rear-ended the plaintiff's vehicle, causing significant impact.
 
 Plaintiff was immediately transported to General Hospital via ambulance, where she was diagnosed with cervical spine whiplash (Grade II), lumbar strain, and soft tissue contusions. Initial pain levels were reported at 7/10 for neck pain.

@@ -12,14 +12,6 @@ const getFileIcon = (type: Evidence['type']) => {
   return <FileSearch className="w-3.5 h-3.5 text-gray-600" />;
 };
 
-const getStatusBadge = (status: Evidence['status']) => {
-  return (
-    <span className="px-1.5 py-0.5 text-[10px] font-medium border border-gray-300 text-gray-600 rounded">
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-};
-
 export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplorerProps) {
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200">
@@ -56,9 +48,6 @@ export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplo
                     <span className="text-[10px] text-gray-500">{evidence.size}</span>
                     <span className="text-[10px] text-gray-400">•</span>
                     <span className="text-[10px] text-gray-500">{evidence.uploadedAt}</span>
-                  </div>
-                  <div className="mt-1">
-                    {getStatusBadge(evidence.status)}
                   </div>
                 </div>
               </div>

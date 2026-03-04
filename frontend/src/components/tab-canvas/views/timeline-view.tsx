@@ -65,12 +65,60 @@ export default function TimelineView() {
       category: 'legal' as const,
     },
     {
+      date: '2024-02-15',
+      time: '09:00',
+      event: 'Insurance Claim Filed',
+      description: 'Third-party bodily injury claim submitted to State Farm Insurance. Claim #SF-2024-8847291.',
+      source: 'Insurance Correspondence',
+      category: 'insurance' as const,
+    },
+    {
       date: '2024-03-15',
       time: '15:00',
       event: 'Physical Therapy Discharge',
       description: 'Completed 24 PT sessions. Final assessment: Cervical ROM 90% normal, pain 2/10. Residual symptoms present.',
       source: 'Medical Records - PT',
       category: 'medical' as const,
+    },
+    {
+      date: '2024-03-20',
+      time: '10:00',
+      event: 'Maximum Medical Improvement (MMI)',
+      description: 'Dr. Robert Chen declares plaintiff has reached MMI. Permanent impairment rating: 0%. Full recovery expected with residual symptoms.',
+      source: 'Medical Records - Specialist',
+      category: 'medical' as const,
+    },
+    {
+      date: '2024-04-01',
+      time: '14:00',
+      event: 'Demand Letter Sent',
+      description: 'Formal demand letter sent to State Farm Insurance requesting $125,000 settlement. 30-day response deadline.',
+      source: 'Attorney Correspondence',
+      category: 'legal' as const,
+    },
+    {
+      date: '2024-04-15',
+      time: '11:30',
+      event: 'Initial Settlement Offer Received',
+      description: 'State Farm responds with initial offer of $45,000. Offer rejected as insufficient.',
+      source: 'Insurance Correspondence',
+      category: 'insurance' as const,
+    },
+    {
+      date: '2024-04-22',
+      time: '16:00',
+      event: 'Counter-Demand Sent',
+      description: 'Counter-demand of $110,000 submitted with detailed damages breakdown and comparable verdicts.',
+      source: 'Attorney Correspondence',
+      category: 'legal' as const,
+    },
+    {
+      date: '2024-05-10',
+      time: '10:00',
+      event: 'Second Settlement Offer',
+      description: 'State Farm increases offer to $62,000. Negotiations ongoing.',
+      source: 'Insurance Correspondence',
+      category: 'insurance' as const,
     },
   ];
 
@@ -87,6 +135,10 @@ export default function TimelineView() {
     insurance: detailedTimeline.filter(e => e.category === 'insurance').length,
   };
 
+  const getCategoryColor = (category: string) => {
+    return 'border-gray-300 text-gray-600';
+  };
+
   return (
     <div className="h-full overflow-y-auto scrollbar-thin bg-white">
       <div className="max-w-5xl mx-auto p-8 space-y-6">
@@ -100,7 +152,7 @@ export default function TimelineView() {
         <div className="border border-gray-200 rounded-lg p-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Filter:</span>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {(Object.keys(categoryStats) as EventCategory[]).map((cat) => (
                 <button
                   key={cat}
@@ -121,7 +173,7 @@ export default function TimelineView() {
         {/* Timeline */}
         <div className="space-y-4">
           {filteredTimeline.map((event, index) => (
-            <div key={index} className="border border-gray-200 rounded-lg p-4">
+            <div key={index} className="border rounded-lg p-4 border-gray-200">
               <div className="flex items-start justify-between gap-4 mb-2">
                 <div className="flex items-center gap-3">
                   <div className="text-xs font-semibold text-gray-900">
@@ -135,7 +187,7 @@ export default function TimelineView() {
                     {event.time}
                   </div>
                 </div>
-                <div className="px-2 py-0.5 border border-gray-300 rounded text-[10px] font-medium text-gray-600 uppercase">
+                <div className={`px-2 py-0.5 border rounded text-[10px] font-medium uppercase ${getCategoryColor(event.category)}`}>
                   {event.category}
                 </div>
               </div>
@@ -147,17 +199,6 @@ export default function TimelineView() {
               </div>
             </div>
           ))}
-        </div>
-
-        {/* Summary */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <h2 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Timeline Summary</h2>
-          <ul className="space-y-2 text-xs text-gray-700">
-            <li>• Total duration: 59 days (Jan 15 - Mar 15, 2024)</li>
-            <li>• Immediate medical attention received (ambulance transport within 15 minutes)</li>
-            <li>• Consistent treatment pattern with documented follow-up care</li>
-            <li>• Defendant admission of fault documented (Feb 4, 2024)</li>
-          </ul>
         </div>
       </div>
     </div>
