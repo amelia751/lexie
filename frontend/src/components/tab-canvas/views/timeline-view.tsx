@@ -204,20 +204,56 @@ export default function TimelineView() {
               </div>
               <h3 className="text-sm font-semibold text-gray-900 mb-2">{event.event}</h3>
               <p className="text-xs text-gray-700 leading-relaxed mb-3">{event.description}</p>
-              <div className="pt-2 border-t border-gray-200 flex items-center gap-2">
-                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Source:</span>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    const doc = getEvidenceDocument(event.source);
-                    if (doc) {
-                      setViewingEvidence({ source: event.source, url: doc.url, type: doc.type });
-                    }
-                  }}
-                  className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
-                >
-                  {event.source}
-                </button>
+              <div className="pt-2 border-t border-gray-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Source:</span>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      const doc = getEvidenceDocument(event.source);
+                      if (doc) {
+                        setViewingEvidence({ source: event.source, url: doc.url, type: doc.type });
+                      }
+                    }}
+                    className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                  >
+                    {event.source}
+                  </button>
+                </div>
+                {(() => {
+                  const doc = getEvidenceDocument(event.source);
+                  if (doc && doc.type === 'image') {
+                    // For image sources, show multiple thumbnails in horizontal scroll
+                    const imageUrls = [
+                      doc.url,
+                      'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=400&h=300&fit=crop',
+                      'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=400&h=300&fit=crop',
+                      'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=400&h=300&fit=crop',
+                    ];
+
+                    return (
+                      <div className="mt-2 flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+                        {imageUrls.map((url, idx) => (
+                          <button
+                            key={idx}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setViewingEvidence({ source: event.source, url: url, type: 'image' });
+                            }}
+                            className="flex-shrink-0 border border-gray-200 rounded overflow-hidden hover:border-gray-300 transition-all hover:shadow-sm"
+                          >
+                            <img
+                              src={url}
+                              alt={`${event.source} ${idx + 1}`}
+                              className="h-20 w-28 object-cover"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </div>
           ))}
