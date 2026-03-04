@@ -25,3 +25,27 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Credentials - NEVER COMMIT
+backend/credentials/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+*-service-account.json
+*-credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+.pytest_cache/
+*.egg-info/
+dist/
+build/

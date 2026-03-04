@@ -3,11 +3,15 @@
 import { useState } from 'react';
 import { mockDamages } from '@/lib/mock-data';
 import { Slider } from '@/components/ui/slider';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import EvidenceViewer from '@/components/evidence-viewer/evidence-viewer';
+import { getEvidenceDocument } from '@/lib/evidence-mapping';
 
 export default function DamagesView() {
   const [selectedScenario, setSelectedScenario] = useState<'worst' | 'base' | 'best'>('base');
   const [contingencyFee, setContingencyFee] = useState(33);
   const [trialCosts, setTrialCosts] = useState(15000);
+  const [viewingEvidence, setViewingEvidence] = useState<{ source: string; url: string; type: 'pdf' | 'image' } | null>(null);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -18,14 +22,47 @@ export default function DamagesView() {
     }).format(amount);
   };
 
-  // Extended damages data
+  // Extended damages data with justifications
+  const damageJustifications = {
+    pastMedical: {
+      amount: 48200,
+      justification: 'Total billed medical expenses from ER visit ($2,850), imaging studies ($2,755), PCP visits ($185), orthopedic consultation ($425), MRI ($1,950), physical therapy ($4,800), and prescription medications ($385). All treatment was reasonable, necessary, and causally related to the accident.',
+      source: 'Medical Records - ER'
+    },
+    futureMedical: {
+      amount: 15000,
+      justification: 'Physician-supported projection including follow-up orthopedic visits, maintenance physical therapy, potential trigger point injections, annual monitoring, ongoing pain management, and contingency for flare-ups based on treating physician recommendations.',
+      source: 'Future Medical Report'
+    },
+    pastLostWages: {
+      amount: 12400,
+      justification: '31 days of missed work at $400/day average daily wage. Supported by employer verification letter and pay stubs showing regular earnings. Time off directly related to medical treatment and recovery from accident injuries.',
+      source: 'Attorney Correspondence'
+    },
+    futureLostEarningCapacity: {
+      amount: 0,
+      justification: 'No future lost earning capacity claimed. Plaintiff returned to full work capacity with no permanent impairment rating (0% WPI). Full recovery expected with no ongoing work restrictions.',
+      source: 'Medical Records - Specialist'
+    },
+    propertyDamage: {
+      amount: 8500,
+      justification: 'Vehicle repair costs ($7,200) plus rental car expenses during 18-day repair period ($1,300). Supported by body shop estimate, final invoice, and rental car receipts. Vehicle sustained significant rear-end damage.',
+      source: 'Insurance Correspondence'
+    },
+    painAndSuffering: {
+      amount: 85000,
+      justification: 'Based on 1.8x multiplier of total medical expenses ($63,200). Justified by 3 months of treatment, moderate soft tissue injuries (Grade II whiplash), documented pain levels, treatment gaps explained, clear liability, and comparable verdicts in Los Angeles County ($95K-$142K for similar injuries).',
+      source: 'Attorney Correspondence'
+    },
+  };
+
   const extendedDamages = {
-    pastMedical: 48200,
-    futureMedical: 15000,
-    pastLostWages: 12400,
-    futureLostEarningCapacity: 0,
-    propertyDamage: 8500,
-    painAndSuffering: 85000,
+    pastMedical: damageJustifications.pastMedical.amount,
+    futureMedical: damageJustifications.futureMedical.amount,
+    pastLostWages: damageJustifications.pastLostWages.amount,
+    futureLostEarningCapacity: damageJustifications.futureLostEarningCapacity.amount,
+    propertyDamage: damageJustifications.propertyDamage.amount,
+    painAndSuffering: damageJustifications.painAndSuffering.amount,
     liens: {
       healthInsurance: 12450,
       medicare: 0,
@@ -108,8 +145,9 @@ export default function DamagesView() {
   const psMultiplier = (currentScenario.painSuffering / (currentScenario.pastMedical + currentScenario.futureMedical)).toFixed(2);
 
   return (
-    <div className="h-full overflow-y-auto scrollbar-thin bg-white">
-      <div className="max-w-6xl mx-auto p-8 space-y-6">
+    <TooltipProvider delayDuration={200}>
+      <div className="h-full overflow-y-auto scrollbar-thin bg-white">
+        <div className="max-w-6xl mx-auto p-8 space-y-6">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4">
           <h1 className="text-lg font-semibold text-gray-900">Damages Analysis</h1>
@@ -135,27 +173,192 @@ export default function DamagesView() {
                 <td className="px-4 py-2 text-xs font-semibold text-gray-900" colSpan={3}>ECONOMIC DAMAGES</td>
               </tr>
               <tr className="text-xs">
-                <td className="px-4 py-3 text-gray-900 pl-8">Past Medical Expenses</td>
+                <td className="px-4 py-3 text-gray-900 pl-8">
+                  <div className="flex items-center gap-2">
+                    <span>Past Medical Expenses</span>
+                    <Tooltip delayDuration={200}>
+                      <TooltipTrigger asChild>
+                        <button className="inline-flex items-center justify-center h-4 w-4 text-[10px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded transition-colors flex-shrink-0 cursor-pointer">
+                          1
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm p-0 bg-white text-gray-900 border border-gray-300 shadow-lg">
+                        <div className="space-y-0">
+                          <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
+                            <p className="text-xs font-semibold text-gray-900">Past Medical Expenses</p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="text-xs leading-relaxed text-gray-700 mb-2">{damageJustifications.pastMedical.justification}</p>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                const doc = getEvidenceDocument(damageJustifications.pastMedical.source);
+                                if (doc) {
+                                  setViewingEvidence({ source: damageJustifications.pastMedical.source, url: doc.url, type: doc.type });
+                                }
+                              }}
+                              className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                            >
+                              View Source: {damageJustifications.pastMedical.source}
+                            </button>
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(currentScenario.pastMedical)}</td>
                 <td className="px-4 py-3 text-right text-gray-600">{((currentScenario.pastMedical / grossTotal) * 100).toFixed(1)}%</td>
               </tr>
               <tr className="text-xs">
-                <td className="px-4 py-3 text-gray-900 pl-8">Future Medical Expenses</td>
+                <td className="px-4 py-3 text-gray-900 pl-8">
+                  <div className="flex items-center gap-2">
+                    <span>Future Medical Expenses</span>
+                    <Tooltip delayDuration={200}>
+                      <TooltipTrigger asChild>
+                        <button className="inline-flex items-center justify-center h-4 w-4 text-[10px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded transition-colors flex-shrink-0 cursor-pointer">
+                          2
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm p-0 bg-white text-gray-900 border border-gray-300 shadow-lg">
+                        <div className="space-y-0">
+                          <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
+                            <p className="text-xs font-semibold text-gray-900">Future Medical Expenses</p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="text-xs leading-relaxed text-gray-700 mb-2">{damageJustifications.futureMedical.justification}</p>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                const doc = getEvidenceDocument(damageJustifications.futureMedical.source);
+                                if (doc) {
+                                  setViewingEvidence({ source: damageJustifications.futureMedical.source, url: doc.url, type: doc.type });
+                                }
+                              }}
+                              className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                            >
+                              View Source: {damageJustifications.futureMedical.source}
+                            </button>
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(currentScenario.futureMedical)}</td>
                 <td className="px-4 py-3 text-right text-gray-600">{((currentScenario.futureMedical / grossTotal) * 100).toFixed(1)}%</td>
               </tr>
               <tr className="text-xs">
-                <td className="px-4 py-3 text-gray-900 pl-8">Past Lost Wages</td>
+                <td className="px-4 py-3 text-gray-900 pl-8">
+                  <div className="flex items-center gap-2">
+                    <span>Past Lost Wages</span>
+                    <Tooltip delayDuration={200}>
+                      <TooltipTrigger asChild>
+                        <button className="inline-flex items-center justify-center h-4 w-4 text-[10px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded transition-colors flex-shrink-0 cursor-pointer">
+                          3
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm p-0 bg-white text-gray-900 border border-gray-300 shadow-lg">
+                        <div className="space-y-0">
+                          <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
+                            <p className="text-xs font-semibold text-gray-900">Past Lost Wages</p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="text-xs leading-relaxed text-gray-700 mb-2">{damageJustifications.pastLostWages.justification}</p>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                const doc = getEvidenceDocument(damageJustifications.pastLostWages.source);
+                                if (doc) {
+                                  setViewingEvidence({ source: damageJustifications.pastLostWages.source, url: doc.url, type: doc.type });
+                                }
+                              }}
+                              className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                            >
+                              View Source: {damageJustifications.pastLostWages.source}
+                            </button>
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(currentScenario.pastWages)}</td>
                 <td className="px-4 py-3 text-right text-gray-600">{((currentScenario.pastWages / grossTotal) * 100).toFixed(1)}%</td>
               </tr>
               <tr className="text-xs">
-                <td className="px-4 py-3 text-gray-900 pl-8">Future Lost Earning Capacity</td>
+                <td className="px-4 py-3 text-gray-900 pl-8">
+                  <div className="flex items-center gap-2">
+                    <span>Future Lost Earning Capacity</span>
+                    <Tooltip delayDuration={200}>
+                      <TooltipTrigger asChild>
+                        <button className="inline-flex items-center justify-center h-4 w-4 text-[10px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded transition-colors flex-shrink-0 cursor-pointer">
+                          4
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm p-0 bg-white text-gray-900 border border-gray-300 shadow-lg">
+                        <div className="space-y-0">
+                          <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
+                            <p className="text-xs font-semibold text-gray-900">Future Lost Earning Capacity</p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="text-xs leading-relaxed text-gray-700 mb-2">{damageJustifications.futureLostEarningCapacity.justification}</p>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                const doc = getEvidenceDocument(damageJustifications.futureLostEarningCapacity.source);
+                                if (doc) {
+                                  setViewingEvidence({ source: damageJustifications.futureLostEarningCapacity.source, url: doc.url, type: doc.type });
+                                }
+                              }}
+                              className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                            >
+                              View Source: {damageJustifications.futureLostEarningCapacity.source}
+                            </button>
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(currentScenario.futureWages)}</td>
                 <td className="px-4 py-3 text-right text-gray-600">{((currentScenario.futureWages / grossTotal) * 100).toFixed(1)}%</td>
               </tr>
               <tr className="text-xs">
-                <td className="px-4 py-3 text-gray-900 pl-8">Property Damage</td>
+                <td className="px-4 py-3 text-gray-900 pl-8">
+                  <div className="flex items-center gap-2">
+                    <span>Property Damage</span>
+                    <Tooltip delayDuration={200}>
+                      <TooltipTrigger asChild>
+                        <button className="inline-flex items-center justify-center h-4 w-4 text-[10px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded transition-colors flex-shrink-0 cursor-pointer">
+                          5
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm p-0 bg-white text-gray-900 border border-gray-300 shadow-lg">
+                        <div className="space-y-0">
+                          <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
+                            <p className="text-xs font-semibold text-gray-900">Property Damage</p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="text-xs leading-relaxed text-gray-700 mb-2">{damageJustifications.propertyDamage.justification}</p>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                const doc = getEvidenceDocument(damageJustifications.propertyDamage.source);
+                                if (doc) {
+                                  setViewingEvidence({ source: damageJustifications.propertyDamage.source, url: doc.url, type: doc.type });
+                                }
+                              }}
+                              className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                            >
+                              View Source: {damageJustifications.propertyDamage.source}
+                            </button>
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(currentScenario.property)}</td>
                 <td className="px-4 py-3 text-right text-gray-600">{((currentScenario.property / grossTotal) * 100).toFixed(1)}%</td>
               </tr>
@@ -171,8 +374,41 @@ export default function DamagesView() {
               </tr>
               <tr className="text-xs">
                 <td className="px-4 py-3 text-gray-900 pl-8">
-                  Pain & Suffering
-                  <span className="ml-2 text-[10px] text-gray-500">({psMultiplier}x medical multiplier)</span>
+                  <div className="flex items-center gap-2">
+                    <span>
+                      Pain & Suffering
+                      <span className="ml-2 text-[10px] text-gray-500">({psMultiplier}x medical multiplier)</span>
+                    </span>
+                    <Tooltip delayDuration={200}>
+                      <TooltipTrigger asChild>
+                        <button className="inline-flex items-center justify-center h-4 w-4 text-[10px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded transition-colors flex-shrink-0 cursor-pointer">
+                          6
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm p-0 bg-white text-gray-900 border border-gray-300 shadow-lg">
+                        <div className="space-y-0">
+                          <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
+                            <p className="text-xs font-semibold text-gray-900">Pain & Suffering (Non-Economic Damages)</p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="text-xs leading-relaxed text-gray-700 mb-2">{damageJustifications.painAndSuffering.justification}</p>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                const doc = getEvidenceDocument(damageJustifications.painAndSuffering.source);
+                                if (doc) {
+                                  setViewingEvidence({ source: damageJustifications.painAndSuffering.source, url: doc.url, type: doc.type });
+                                }
+                              }}
+                              className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                            >
+                              View Source: {damageJustifications.painAndSuffering.source}
+                            </button>
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(currentScenario.painSuffering)}</td>
                 <td className="px-4 py-3 text-right text-gray-600">{((currentScenario.painSuffering / grossTotal) * 100).toFixed(1)}%</td>
@@ -436,5 +672,16 @@ export default function DamagesView() {
         </div>
       </div>
     </div>
+
+    {/* Evidence Viewer Modal */}
+    {viewingEvidence && (
+      <EvidenceViewer
+        source={viewingEvidence.source}
+        url={viewingEvidence.url}
+        type={viewingEvidence.type}
+        onClose={() => setViewingEvidence(null)}
+      />
+    )}
+    </TooltipProvider>
   );
 }

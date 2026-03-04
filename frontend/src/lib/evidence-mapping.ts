@@ -58,6 +58,20 @@ export const evidenceMap: Record<string, EvidenceDocument> = {
     url: 'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=1600&h=900&fit=crop',
     type: 'image',
   },
+
+  // Medical Analysis
+  'Medical Records Review': {
+    url: 'https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf',
+    type: 'pdf',
+  },
+  'Lien Documentation': {
+    url: 'https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf',
+    type: 'pdf',
+  },
+  'Future Medical Report': {
+    url: 'https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf',
+    type: 'pdf',
+  },
 };
 
 export function getEvidenceDocument(source: string): EvidenceDocument | null {
