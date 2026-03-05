@@ -295,12 +295,20 @@ class GeminiLiveService:
                             run_config=run_config,
                         ):
                             # ADK Event fields:
+                            # - interrupted: Boolean when user interrupted (CHECK FIRST!)
                             # - content: Content with parts (may contain audio blobs)
                             # - output_transcription: Transcription of assistant's speech
                             # - input_transcription: Transcription of user's speech  
                             # - turn_complete: Boolean when turn is done
-                            # - interrupted: Boolean when user interrupted
                             # - actions: Tool actions
+                            
+                            # CHECK INTERRUPTION FIRST - frontend needs to stop audio immediately
+                            if event.interrupted:
+                                await websocket.send_json({
+                                    "type": "interrupted",
+                                })
+                                # Don't send any more audio/transcripts for this event
+                                continue
                             
                             # Handle audio content (only send audio, not text from content)
                             if event.content and event.content.parts:
@@ -333,12 +341,6 @@ class GeminiLiveService:
                             if event.turn_complete:
                                 await websocket.send_json({
                                     "type": "turn_complete",
-                                })
-                            
-                            # Interrupted by user (barge-in)
-                            if event.interrupted:
-                                await websocket.send_json({
-                                    "type": "interrupted",
                                 })
                             
                             # Tool call events (Google Search, etc.)

@@ -25,6 +25,16 @@ export default function GeminiTestPage() {
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  
+  // Playback audio context (to stop on interruption)
+  const playbackContextRef = useRef<AudioContext | null>(null);
+  const playbackSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  
+  // Interruption tracking - ignore late assistant transcripts
+  const interruptedRef = useRef(false);
+  
+  // Track last finalized content to detect cumulative transcripts
+  const lastAssistantContentRef = useRef("");
 
   // Current turn tracking - use refs to avoid stale closures
   const currentTurnIdRef = useRef<string | null>(null);
@@ -83,10 +93,22 @@ export default function GeminiTestPage() {
   }, []);
 
   // Finalize the current turn (mark as not live)
-  const finalizeTurn = useCallback((role: "user" | "assistant") => {
+  const finalizeTurn = useCallback((role: "user" | "assistant", captureContent = false) => {
     setTurns((prev) => {
       const lastIndex = prev.findIndex((t) => t.role === role && t.isLive);
       if (lastIndex === -1) return prev;
+      
+      // Track assistant content for detecting cumulative transcripts
+      // This runs synchronously before returning
+      if (role === "assistant" && captureContent) {
+        // Accumulate all assistant content spoken so far
+        const allAssistantContent = prev
+          .filter(t => t.role === "assistant")
+          .map(t => t.content)
+          .join("");
+        lastAssistantContentRef.current = allAssistantContent;
+      }
+      
       return prev.map((t, i) =>
         i === lastIndex ? { ...t, isLive: false } : t
       );
@@ -105,27 +127,50 @@ export default function GeminiTestPage() {
     ]);
   }, []);
 
+  // Stop all audio playback immediately
+  const stopAudio = useCallback(() => {
+    // Clear queue
+    audioQueueRef.current = [];
+    // Stop current playback
+    try {
+      playbackSourceRef.current?.stop();
+      playbackSourceRef.current?.disconnect();
+    } catch {}
+    try {
+      if (playbackContextRef.current?.state !== "closed") {
+        playbackContextRef.current?.close();
+      }
+    } catch {}
+    playbackSourceRef.current = null;
+    playbackContextRef.current = null;
+    isPlayingRef.current = false;
+  }, []);
+
   // Audio playback queue
   const playAudio = useCallback(async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
     isPlayingRef.current = true;
 
-    while (audioQueueRef.current.length > 0) {
+    while (audioQueueRef.current.length > 0 && !interruptedRef.current) {
       const data = audioQueueRef.current.shift();
       if (!data) continue;
       try {
         const ctx = new AudioContext({ sampleRate: 24000 });
+        playbackContextRef.current = ctx;
         const buf = ctx.createBuffer(1, data.byteLength / 2, 24000);
         const chan = buf.getChannelData(0);
         const int16 = new Int16Array(data);
         for (let i = 0; i < int16.length; i++) chan[i] = int16[i] / 32768;
         const src = ctx.createBufferSource();
+        playbackSourceRef.current = src;
         src.buffer = buf;
         src.connect(ctx.destination);
         await new Promise<void>((r) => { src.onended = () => r(); src.start(); });
-        ctx.close();
+        if (ctx.state !== "closed") ctx.close();
       } catch {}
     }
+    playbackContextRef.current = null;
+    playbackSourceRef.current = null;
     isPlayingRef.current = false;
   }, []);
 
@@ -133,7 +178,10 @@ export default function GeminiTestPage() {
   const handleMessage = useCallback(
     (event: MessageEvent) => {
       if (event.data instanceof Blob) {
+        // Don't queue audio if interrupted
+        if (interruptedRef.current) return;
         event.data.arrayBuffer().then((buf) => {
+          if (interruptedRef.current) return; // Double check
           audioQueueRef.current.push(buf);
           playAudio();
         });
@@ -148,23 +196,43 @@ export default function GeminiTestPage() {
           setStatus(msg.message || msg.content || "Connected");
         } else if (type === "transcript") {
           const role = msg.role as "user" | "assistant";
-          const content = msg.content || "";
-          const isPartial = msg.partial !== false; // Default to partial if not specified
+          let content = msg.content || "";
+          const isPartial = msg.partial !== false;
+          
+          // Ignore assistant transcripts after interruption (late arrivals)
+          if (role === "assistant" && interruptedRef.current) {
+            return;
+          }
+          
+          // User speaking = clear interrupted state (new turn started)
+          if (role === "user") {
+            interruptedRef.current = false;
+          }
+          
+          // Strip cumulative content from assistant transcripts
+          // Gemini sends ALL session text, not just current response
+          if (role === "assistant" && lastAssistantContentRef.current) {
+            if (content.startsWith(lastAssistantContentRef.current)) {
+              content = content.slice(lastAssistantContentRef.current.length).trim();
+            }
+          }
           
           if (content) {
-            // API sends cumulative text, so always replace (not accumulate)
             updateTurn(role, content, isPartial);
           }
         } else if (type === "turn_complete") {
-          // Assistant finished speaking - DON'T finalize here!
-          // The final transcript (partial=false) will finalize the turn.
-          // Just update status.
+          // Assistant finished speaking - just update status
           setStatus("Listening...");
         } else if (type === "interrupted") {
-          // User interrupted - finalize assistant's turn
-          finalizeTurn("assistant");
-          // Also finalize any live user turn since they're done
-          finalizeTurn("user");
+          // USER INTERRUPTED! Stop everything immediately
+          interruptedRef.current = true;
+          
+          // Stop audio playback NOW
+          stopAudio();
+          
+          // Finalize assistant's turn and capture content for cumulative detection
+          finalizeTurn("assistant", true);
+          
           setStatus("Listening...");
         } else if (type === "tool_call") {
           addSystem(`🔍 ${msg.content}`);
@@ -176,7 +244,7 @@ export default function GeminiTestPage() {
         console.error("Parse error:", e);
       }
     },
-    [addSystem, finalizeTurn, playAudio, updateTurn]
+    [addSystem, finalizeTurn, playAudio, stopAudio, updateTurn]
   );
 
   // Start session
@@ -185,6 +253,8 @@ export default function GeminiTestPage() {
     setTurns([]);
     currentTurnIdRef.current = null;
     currentTurnRoleRef.current = null;
+    interruptedRef.current = false;
+    lastAssistantContentRef.current = "";
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -252,12 +322,12 @@ export default function GeminiTestPage() {
     audioContextRef.current?.close();
     mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
     wsRef.current?.close();
-    audioQueueRef.current = [];
-    isPlayingRef.current = false;
+    stopAudio();
+    interruptedRef.current = false;
     setIsConnected(false);
     setIsRecording(false);
     setStatus("Stopped");
-  }, []);
+  }, [stopAudio]);
 
   useEffect(() => () => stopSession(), [stopSession]);
 
