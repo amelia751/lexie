@@ -35,8 +35,8 @@ export default function GeminiTestPage() {
   }, [turns]);
 
   // Start a new turn or update the current live turn
-  // API sends INCREMENTAL words, so we ACCUMULATE them
-  const updateTurn = useCallback((role: "user" | "assistant", content: string, isLive: boolean) => {
+  // Partials = incremental words (accumulate), Final = full text (replace)
+  const updateTurn = useCallback((role: "user" | "assistant", content: string, isPartial: boolean) => {
     if (!content.trim()) return;
 
     setTurns((prev) => {
@@ -44,12 +44,15 @@ export default function GeminiTestPage() {
       const liveTurnIndex = prev.findIndex((t) => t.role === role && t.isLive);
       
       if (liveTurnIndex !== -1) {
-        // ACCUMULATE: append new content to existing
-        const existingContent = prev[liveTurnIndex].content;
-        const newContent = existingContent + content;
+        const existing = prev[liveTurnIndex].content;
+        // Partial: ACCUMULATE (append new word)
+        // Final: REPLACE (use properly-spaced full text)
+        const newContent = isPartial 
+          ? (existing + " " + content).trim()  // Accumulate with space
+          : content.trim();                     // Replace with final
         
         return prev.map((t, i) =>
-          i === liveTurnIndex ? { ...t, content: newContent, isLive } : t
+          i === liveTurnIndex ? { ...t, content: newContent, isLive: isPartial } : t
         );
       }
 
@@ -69,7 +72,7 @@ export default function GeminiTestPage() {
         id: `${Date.now()}-${Math.random()}`,
         role,
         content: content.trim(),
-        isLive,
+        isLive: isPartial, // Live if partial, finalized if final
       };
 
       currentTurnIdRef.current = newTurn.id;
@@ -92,30 +95,6 @@ export default function GeminiTestPage() {
       currentTurnIdRef.current = null;
       currentTurnRoleRef.current = null;
     }
-  }, []);
-
-  // Replace content of live turn (for final transcript with proper spacing)
-  const replaceTurn = useCallback((role: "user" | "assistant", content: string) => {
-    if (!content) return;
-    
-    setTurns((prev) => {
-      const liveTurnIndex = prev.findIndex((t) => t.role === role && t.isLive);
-      
-      if (liveTurnIndex !== -1) {
-        // Replace content entirely (final transcript has proper spacing)
-        return prev.map((t, i) =>
-          i === liveTurnIndex ? { ...t, content, isLive: true } : t
-        );
-      }
-      
-      // No live turn exists - create one
-      return [...prev, {
-        id: `${Date.now()}-${Math.random()}`,
-        role,
-        content,
-        isLive: true,
-      }];
-    });
   }, []);
 
   // Add a system message
@@ -173,17 +152,13 @@ export default function GeminiTestPage() {
           const isPartial = msg.partial !== false; // Default to partial if not specified
           
           if (content) {
-            if (isPartial) {
-              // Partial: accumulate words
-              updateTurn(role, content, true);
-            } else {
-              // Final: replace with complete properly-spaced text
-              replaceTurn(role, content.trim());
-            }
+            // API sends cumulative text, so always replace (not accumulate)
+            updateTurn(role, content, isPartial);
           }
         } else if (type === "turn_complete") {
-          // Assistant finished speaking
-          finalizeTurn("assistant");
+          // Assistant finished speaking - DON'T finalize here!
+          // The final transcript (partial=false) will finalize the turn.
+          // Just update status.
           setStatus("Listening...");
         } else if (type === "interrupted") {
           // User interrupted - finalize assistant's turn

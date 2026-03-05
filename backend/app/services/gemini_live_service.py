@@ -19,7 +19,14 @@ from google.adk.runners import Runner, RunConfig
 from google.adk.sessions import InMemorySessionService
 from google.adk.agents import LiveRequestQueue
 from google.genai import types
-from google.genai.types import SpeechConfig, VoiceConfig, PrebuiltVoiceConfig
+from google.genai.types import (
+    SpeechConfig, 
+    VoiceConfig, 
+    PrebuiltVoiceConfig,
+    RealtimeInputConfig,
+    AutomaticActivityDetection,
+    ActivityHandling,
+)
 
 from app.agents import root_agent, live_agent
 from app.agents.intake_agent import LIVE_MODEL, CHAT_MODEL
@@ -192,11 +199,28 @@ class GeminiLiveService:
                             prebuilt_voice_config=PrebuiltVoiceConfig(
                                 voice_name="Puck",  # Friendly, professional voice
                             )
-                        )
+                        ),
+                        languageCode="en-US",  # Bias transcription towards English
                     ),
                     # Enable transcription for both input and output
                     output_audio_transcription=types.AudioTranscriptionConfig(),
                     input_audio_transcription=types.AudioTranscriptionConfig(),
+                    # Improve interruption handling with automatic activity detection
+                    realtime_input_config=RealtimeInputConfig(
+                        # User speech interrupts model response
+                        activity_handling=ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+                        automatic_activity_detection=AutomaticActivityDetection(
+                            disabled=False,
+                            # HIGH = more sensitive to speech start (faster interrupt)
+                            startOfSpeechSensitivity="START_SENSITIVITY_HIGH",
+                            # LOW = less sensitive to speech end (avoid cutting off)
+                            endOfSpeechSensitivity="END_SENSITIVITY_LOW",
+                            # Padding before speech detection
+                            prefixPaddingMs=100,
+                            # How long silence before turn ends
+                            silenceDurationMs=500,
+                        )
+                    ),
                 )
                 
                 # Task to receive from client and send to Gemini
