@@ -1,9 +1,9 @@
 """
-Lexie Legal Intake Agents
+Lexie Legal Agents
 
-ADK-based agents for the Lexie legal intake assistant.
+ADK-based multi-agent system for the Lexie legal intake assistant.
 """
 
-from .intake_agent import root_agent, live_agent
+from .live_agent import root_agent, live_agent
 
 __all__ = ["root_agent", "live_agent"]

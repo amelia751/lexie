@@ -1,11 +1,12 @@
 """
-Lexie Legal Intake Agent
+Lexie Live Agent (Root)
 
-An ADK agent for conducting empathetic, professional intake conversations
-with potential personal injury clients.
+The voice-facing root agent that conducts empathetic, professional 
+intake conversations with potential personal injury clients.
 
 Uses Gemini Live API for real-time bidirectional voice streaming with
-interruption support.
+interruption support. Orchestrates sub-agents for evidence analysis,
+legal research, and damages calculation.
 """
 
 from google.adk.agents import Agent
@@ -68,7 +69,7 @@ CHAT_MODEL = "gemini-2.5-flash"
 
 # Create the root agent for ADK (text chat)
 root_agent = Agent(
-    name="lexie_intake_agent",
+    name="lexie_root_agent",
     model=CHAT_MODEL,
     description="AI-powered legal intake assistant for plaintiff personal injury law firms",
     instruction=LEGAL_INTAKE_INSTRUCTION,

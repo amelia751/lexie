@@ -12,7 +12,6 @@ if __name__ == "__main__":
     ║         Powered by Gemini Live API                ║
     ╠═══════════════════════════════════════════════════╣
     ║  Server:  http://{settings.host}:{settings.port}              ║
-    ║  Model:   {settings.gemini_model}                  ║
     ║  Project: {settings.gcp_project_id}                       ║
     ╚═══════════════════════════════════════════════════╝
     """)

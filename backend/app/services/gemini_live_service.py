@@ -29,7 +29,7 @@ from google.genai.types import (
 )
 
 from app.agents import root_agent, live_agent
-from app.agents.intake_agent import LIVE_MODEL, CHAT_MODEL
+from app.agents.live_agent import LIVE_MODEL, CHAT_MODEL
 from app.config import settings
 
 logger = logging.getLogger(__name__)
