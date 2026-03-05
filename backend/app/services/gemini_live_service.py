@@ -15,12 +15,13 @@ import logging
 from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
 
-from google.adk.runners import Runner
+from google.adk.runners import Runner, RunConfig
 from google.adk.sessions import InMemorySessionService
 from google.adk.agents import LiveRequestQueue
 from google.genai import types
+from google.genai.types import SpeechConfig, VoiceConfig, PrebuiltVoiceConfig
 
-from app.agents import root_agent
+from app.agents import root_agent, live_agent
 from app.agents.intake_agent import LIVE_MODEL, CHAT_MODEL
 from app.config import settings
 
@@ -135,9 +136,9 @@ class GeminiLiveService:
             tuple: (runner, session, live_request_queue)
         """
         try:
-            # Create runner with the intake agent
+            # Create runner with the LIVE agent (uses live-capable model)
             runner = Runner(
-                agent=root_agent,
+                agent=live_agent,
                 app_name="lexie_live",
                 session_service=self.session_service,
             )
@@ -181,16 +182,21 @@ class GeminiLiveService:
         """
         async with self.create_live_session(client_id) as (runner, session, live_request_queue):
             try:
-                # Configure run for live streaming
-                run_config = types.RunConfig(
-                    response_modalities=["AUDIO", "TEXT"],
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                # Configure run for live streaming with ADK RunConfig
+                # Note: Live API only allows ONE response modality
+                # We use AUDIO and enable transcription for text
+                run_config = RunConfig(
+                    response_modalities=["AUDIO"],  # Voice output only
+                    speech_config=SpeechConfig(
+                        voice_config=VoiceConfig(
+                            prebuilt_voice_config=PrebuiltVoiceConfig(
                                 voice_name="Puck",  # Friendly, professional voice
                             )
                         )
                     ),
+                    # Enable transcription for both input and output
+                    output_audio_transcription=types.AudioTranscriptionConfig(),
+                    input_audio_transcription=types.AudioTranscriptionConfig(),
                 )
                 
                 # Task to receive from client and send to Gemini
@@ -264,53 +270,61 @@ class GeminiLiveService:
                             live_request_queue=live_request_queue,
                             run_config=run_config,
                         ):
-                            # Handle different event types
-                            if event.server_content:
-                                content = event.server_content
-                                
-                                # Model's turn with audio/text
-                                if content.model_turn and content.model_turn.parts:
-                                    for part in content.model_turn.parts:
-                                        if part.inline_data:
-                                            # Audio output - send as binary
-                                            await websocket.send_bytes(
-                                                part.inline_data.data
-                                            )
-                                        elif part.text:
-                                            # Text/transcript output
-                                            await websocket.send_json({
-                                                "type": "transcript",
-                                                "role": "assistant",
-                                                "content": part.text,
-                                            })
-                                
-                                # Turn complete notification
-                                if content.turn_complete:
-                                    await websocket.send_json({
-                                        "type": "turn_complete",
-                                    })
-                                
-                                # Interrupted by user
-                                if content.interrupted:
-                                    await websocket.send_json({
-                                        "type": "interrupted",
-                                    })
+                            # ADK Event fields:
+                            # - content: Content with parts (may contain audio blobs)
+                            # - output_transcription: Transcription of assistant's speech
+                            # - input_transcription: Transcription of user's speech  
+                            # - turn_complete: Boolean when turn is done
+                            # - interrupted: Boolean when user interrupted
+                            # - actions: Tool actions
                             
-                            # Tool call events (Google Search, etc.)
-                            if event.actions and event.actions.tool_code_execution:
+                            # Handle audio content (only send audio, not text from content)
+                            if event.content and event.content.parts:
+                                for part in event.content.parts:
+                                    # Check for inline audio data only
+                                    if hasattr(part, 'inline_data') and part.inline_data:
+                                        if part.inline_data.data:
+                                            await websocket.send_bytes(part.inline_data.data)
+                                    # Note: Don't send text from content.parts - use transcription instead
+                            
+                            # Handle assistant speech transcription
+                            if event.output_transcription and event.output_transcription.text:
                                 await websocket.send_json({
-                                    "type": "tool_call",
-                                    "content": "Searching for information...",
+                                    "type": "transcript",
+                                    "role": "assistant",
+                                    "content": event.output_transcription.text,
+                                    "partial": not getattr(event.output_transcription, 'finished', True),
                                 })
                             
-                            # User speech transcription
-                            if hasattr(event, 'user_content') and event.user_content:
-                                for part in event.user_content.parts:
-                                    if part.text:
+                            # Handle user speech transcription
+                            if event.input_transcription and event.input_transcription.text:
+                                await websocket.send_json({
+                                    "type": "transcript",
+                                    "role": "user",
+                                    "content": event.input_transcription.text,
+                                    "partial": not getattr(event.input_transcription, 'finished', True),
+                                })
+                            
+                            # Turn complete notification
+                            if event.turn_complete:
+                                await websocket.send_json({
+                                    "type": "turn_complete",
+                                })
+                            
+                            # Interrupted by user (barge-in)
+                            if event.interrupted:
+                                await websocket.send_json({
+                                    "type": "interrupted",
+                                })
+                            
+                            # Tool call events (Google Search, etc.)
+                            if event.actions:
+                                func_calls = event.get_function_calls()
+                                if func_calls:
+                                    for fc in func_calls:
                                         await websocket.send_json({
-                                            "type": "transcript",
-                                            "role": "user",
-                                            "content": part.text,
+                                            "type": "tool_call",
+                                            "content": f"Calling {fc.name}...",
                                         })
                                         
                     except Exception as e:

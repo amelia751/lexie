@@ -66,17 +66,23 @@ LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
 CHAT_MODEL = "gemini-2.5-flash"
 
 
-# Create the root agent for ADK
-# This agent is used for both text chat and live streaming
+# Create the root agent for ADK (text chat)
 root_agent = Agent(
     name="lexie_intake_agent",
-    # Use flash model for text chat - live model set in run_config for streaming
     model=CHAT_MODEL,
     description="AI-powered legal intake assistant for plaintiff personal injury law firms",
     instruction=LEGAL_INTAKE_INSTRUCTION,
-    # Google Search for looking up relevant legal information, local laws, etc.
     tools=[google_search],
 )
 
-# Export the live model name for use in streaming
-__all__ = ["root_agent", "LIVE_MODEL", "CHAT_MODEL"]
+# Create a separate agent for live streaming (voice)
+live_agent = Agent(
+    name="lexie_live_agent",
+    model=LIVE_MODEL,  # Uses the live-capable model
+    description="AI-powered legal intake assistant for plaintiff personal injury law firms",
+    instruction=LEGAL_INTAKE_INSTRUCTION,
+    tools=[google_search],
+)
+
+# Export both agents
+__all__ = ["root_agent", "live_agent", "LIVE_MODEL", "CHAT_MODEL"]
