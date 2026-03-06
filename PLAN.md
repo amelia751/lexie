@@ -2,7 +2,7 @@
 
 ## Overview
 
-Lexie is an AI-powered legal intake system for workplace injury cases. It uses Google ADK with multiple specialized agents that collaborate to conduct intake interviews, analyze evidence, research legal precedents, and calculate case damages.
+Lexie is an AI-powered legal intake system for workplace injury cases. It uses Google ADK with specialized agents that collaborate to conduct intake interviews, analyze evidence, and calculate case damages.
 
 ---
 
@@ -10,30 +10,38 @@ Lexie is an AI-powered legal intake system for workplace injury cases. It uses G
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         USER (Voice/Text)                           │
-└─────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    LEXIE LIVE AGENT (Root)                          │
+│                      EVIDENCE HUB (State Service)                   │
 │                                                                     │
-│  • Model: gemini-live-2.5-flash-native-audio                        │
-│  • Real-time voice streaming with interruption support              │
-│  • Conducts empathetic intake conversations                         │
-│  • Orchestrates sub-agents via AgentTool                            │
+│  • evidence_checklist: [{type, status, priority, document_id}]     │
+│  • case_facts: {incident, injuries, witnesses, damages...}         │
+│  • case_summary: auto-generated from facts                         │
+│  • checklist templates: construction_fall, workplace_injury        │
 └─────────────────────────────────────────────────────────────────────┘
-            │                    │                    │
-            ▼                    ▼                    ▼
-┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐
-│ EVIDENCE ANALYSIS │ │  LEGAL RESEARCH   │ │ DAMAGES CALCULATOR│
-│      AGENT        │ │      AGENT        │ │      AGENT        │
-│                   │ │                   │ │                   │
-│ • Parses docs     │ │ • Google Search   │ │ • Economic damages│
-│ • Extracts facts  │ │ • OSHA regs       │ │ • Pain & suffering│
-│ • Flags gaps      │ │ • Case precedents │ │ • Settlement range│
-│ • Summarizes      │ │ • SOL checking    │ │ • Lien analysis   │
-└───────────────────┘ └───────────────────┘ └───────────────────┘
+        ▲                         ▲                         ▲
+        │                         │                         │
+┌───────┴────────┐       ┌────────┴───────┐       ┌────────┴───────┐
+│  LIVE AGENT    │       │ EVIDENCE AGENT │       │    DAMAGES     │
+│    (Root)      │       │                │       │   CALCULATOR   │
+│                │       │                │       │                │
+│ • Voice/text   │       │ • RAG search   │       │ • Code exec    │
+│ • Hub tools    │       │ • Vision       │       │ • Multipliers  │
+│ • google_search│       │ • Doc summary  │       │ • Settlement   │
+│ • Orchestrates │       │                │       │                │
+└────────────────┘       └────────────────┘       └────────────────┘
+        │                                                   │
+        └─────────────── AgentTool ─────────────────────────┘
 ```
+
+---
+
+## Services
+
+| Service | Purpose | Key Methods |
+|---------|---------|-------------|
+| `evidence_hub.py` | Central state management | `initialize_case()`, `update_fact()`, `get_summary()` |
+| `rag_service.py` | Document search (Vertex AI RAG) | `retrieve()`, `grounded_generate()` |
+| `vision_service.py` | Image analysis (Gemini 2.5 Flash Image) | `analyze(image, prompt)` |
+| `gemini_live_service.py` | Voice streaming (WebSocket) | `run_live_session()` |
 
 ---
 
@@ -41,173 +49,125 @@ Lexie is an AI-powered legal intake system for workplace injury cases. It uses G
 
 ### 1. Lexie Live Agent (Root)
 
-**Purpose:** Voice-facing intake assistant that talks directly to plaintiffs
+**Purpose:** Voice/text-facing intake assistant that orchestrates the conversation
 
-**Model:** `gemini-live-2.5-flash-native-audio`
-
-**Capabilities:**
-- Real-time bidirectional voice streaming
-- Interruption handling (VAD-based)
-- Empathetic, professional conversation
-- Orchestrates sub-agents based on conversation context
-
-**Key Behaviors:**
-- Asks ONE question at a time
-- Keeps responses SHORT (2-3 sentences)
-- Shows empathy and compassion
-- Never provides legal advice
-- Summarizes information back to user
-
-**Information Gathered:**
-- Incident details (date, location, how it happened)
-- Injuries and medical treatment
-- Impact on life (lost wages, pain)
-- Available evidence
-- Witness information
-- Insurance details
+**Models:** 
+- Voice: `gemini-live-2.5-flash-native-audio`
+- Text: `gemini-2.5-flash`
 
 **Tools:**
-- `evidence_analysis_agent` (AgentTool)
-- `legal_research_agent` (AgentTool)
-- `damages_calculator_agent` (AgentTool)
+
+| Tool | Purpose |
+|------|---------|
+| `initialize_case(case_type)` | Start new case, create evidence checklist |
+| `update_case_facts(field, value)` | Save gathered information |
+| `get_case_facts()` | Retrieve current facts |
+| `get_evidence_checklist()` | See what's needed/uploaded |
+| `request_evidence_upload(type, desc)` | Ask user for document |
+| `mark_evidence_pending(id)` | User will provide later |
+| `mark_evidence_not_available(id)` | User doesn't have it |
+| `get_case_summary()` | Generate case summary |
+| `google_search` | Research OSHA, legal info |
+| `evidence_agent` (AgentTool) | Analyze documents/images |
+| `damages_agent` (AgentTool) | Calculate settlement |
 
 ---
 
 ### 2. Evidence Analysis Agent
 
-**Purpose:** Analyzes uploaded documents and extracts structured information
+**Purpose:** Analyzes uploaded documents and images
 
 **Model:** `gemini-2.5-flash`
 
-**Capabilities:**
-- Parse PDFs, images, and text documents
-- Extract key facts (dates, names, amounts, diagnoses)
-- Identify inconsistencies or gaps in documentation
-- Generate document summaries
-- Cross-reference information across documents
-
-**Input Types:**
-- Medical records (ER, specialist, PT, imaging)
-- Incident reports (employer, OSHA, witness statements)
-- Employment records (wage history, training records)
-- Workers' comp documents
-- Photos (accident scene, injuries, safety violations)
-
-**Output Format:**
-```json
-{
-  "document_type": "medical_record",
-  "key_facts": [...],
-  "dates": [...],
-  "amounts": [...],
-  "diagnoses": [...],
-  "flags": [...],
-  "summary": "..."
-}
-```
-
 **Tools:**
-- Document parsing tool (text extraction)
-- Image analysis (for photos)
+
+| Tool | Purpose |
+|------|---------|
+| `search_evidence(query)` | RAG search across documents |
+| `get_document_summary(name)` | Summarize specific document |
+| `list_evidence_files()` | List corpus files |
+| `analyze_case_evidence(aspect)` | Analyze injuries, liability, etc. |
+| `analyze_image(path, prompt)` | Vision analysis (photos/X-rays) |
+
+**Services Used:**
+- `rag_service` - Vertex AI RAG Engine
+- `vision_service` - Gemini 2.5 Flash Image
 
 ---
 
-### 3. Legal Research Agent
+### 3. Damages Calculator Agent
 
-**Purpose:** Researches applicable laws, regulations, and case precedents
+**Purpose:** Computes case valuation using code execution
 
-**Model:** `gemini-2.5-flash`
-
-**Capabilities:**
-- Search OSHA regulations (29 CFR citations)
-- Find comparable verdicts in jurisdiction
-- Check statute of limitations
-- Analyze workers' comp vs third-party liability options
-- Identify potential liable parties
-
-**Research Areas:**
-- OSHA safety violations and penalties
-- California workers' compensation law
-- Personal injury statutes
-- Employer negligence standards
-- Third-party liability (equipment manufacturers, contractors)
-
-**Output Format:**
-```json
-{
-  "applicable_regulations": [...],
-  "similar_cases": [...],
-  "statute_of_limitations": {...},
-  "liability_analysis": "...",
-  "legal_theories": [...]
-}
-```
+**Model:** `gemini-2.5-flash` with `BuiltInCodeExecutor`
 
 **Tools:**
-- `google_search` (built-in ADK tool)
+
+| Tool | Purpose |
+|------|---------|
+| `get_case_damages_data()` | Get data from hub |
+| `save_damages_calculation(...)` | Save results to hub |
+| `get_multiplier_guidance(severity)` | Get pain/suffering multiplier |
+| `calculate_lost_wages(...)` | Lost wages formula |
+
+**Code Execution:** Agent writes Python code for all math calculations - no hallucinated numbers.
 
 ---
 
-### 4. Damages Calculator Agent
+## Evidence Hub Details
 
-**Purpose:** Computes case valuation and settlement estimates
+### Case Facts Structure
 
-**Model:** `gemini-2.5-flash`
-
-**Capabilities:**
-- Calculate economic damages (medical + lost wages)
-- Estimate future medical costs
-- Apply pain & suffering multipliers
-- Consider policy limits
-- Account for liens and subrogation
-- Generate settlement range
-
-**Damage Categories:**
-| Category | Description |
-|----------|-------------|
-| Past Medical | All treatment to date |
-| Future Medical | Projected ongoing care |
-| Past Lost Wages | Actual income lost |
-| Future Lost Earnings | Reduced earning capacity |
-| Pain & Suffering | Non-economic damages |
-| Property Damage | If applicable |
-
-**Calculation Methods:**
-- Multiplier method: (Economic × 1.5-5)
-- Per diem method: Daily rate × days affected
-- Comparable verdicts: Similar cases in jurisdiction
-
-**Output Format:**
-```json
-{
-  "economic_damages": {
-    "past_medical": 67400,
-    "future_medical": 45000,
-    "lost_wages": 20480,
-    "total": 132880
-  },
-  "non_economic_damages": {
-    "pain_and_suffering": 85000,
-    "method": "3x multiplier"
-  },
-  "gross_total": 217880,
-  "liens": 12450,
-  "net_estimate": 205430,
-  "settlement_range": {
-    "low": 150000,
-    "high": 220000
-  },
-  "confidence": "medium"
-}
+```python
+CaseFacts:
+    # Plaintiff
+    plaintiff_name, plaintiff_age, plaintiff_occupation
+    
+    # Employer
+    employer_name, employer_type
+    
+    # Incident
+    incident_date, incident_location, incident_description, incident_type
+    
+    # Injuries
+    injuries: list, injury_severity (minor/moderate/serious/severe)
+    
+    # Medical
+    medical_providers: list, medical_expenses, future_medical_estimate
+    
+    # Employment Impact
+    days_missed_work, lost_wages, can_return_to_work, work_restrictions
+    
+    # Other
+    witnesses: list, safety_violations: list, osha_citations: list
+    workers_comp_filed, workers_comp_claim_number
+    
+    # Calculated Damages
+    economic_damages, non_economic_damages, total_damages_estimate
+    settlement_range_low, settlement_range_high
 ```
 
-**Tools:**
-- Calculator functions
-- Comparable verdict lookup
+### Evidence Checklist (Construction Fall)
+
+| Type | Description | Priority |
+|------|-------------|----------|
+| incident_report | Employer's incident/accident report | Critical |
+| medical_records_er | Emergency room records | Critical |
+| medical_records_primary | Primary care/specialist records | Critical |
+| witness_statements | Written statements from witnesses | Important |
+| photos_scene | Photos of accident scene | Important |
+| photos_injuries | Photos of injuries | Important |
+| employment_records | Pay stubs showing wages | Important |
+| safety_training | Training records/certifications | Important |
+| workers_comp_claim | Workers' comp documents | Important |
+| osha_report | OSHA investigation report | Helpful |
+| medical_imaging | X-rays, MRI, CT scans | Helpful |
+| physical_therapy | PT records | Helpful |
+| medical_bills | Bills and invoices | Helpful |
 
 ---
 
-## Implementation Plan
+## Implementation Status
 
 ### Phase 1: Core Setup ✅
 - [x] Backend structure (FastAPI)
@@ -216,39 +176,28 @@ Lexie is an AI-powered legal intake system for workplace injury cases. It uses G
 - [x] Frontend test page with transcription
 - [x] Interruption handling
 
-### Phase 2: Evidence System
-- [ ] Create Evidence Analysis Agent
-- [ ] Document upload endpoint
-- [ ] PDF/image parsing integration
-- [ ] Evidence extraction pipeline
-- [ ] Summary generation
+### Phase 2: Evidence System ✅
+- [x] Evidence Hub service (state management)
+- [x] Evidence Analysis Agent
+- [x] RAG integration (Vertex AI RAG Engine)
+- [x] Vision integration (gemini-2.5-flash-image)
 
-### Phase 3: Research Integration
-- [ ] Create Legal Research Agent
-- [ ] Google Search tool integration
-- [ ] OSHA regulation lookup
-- [ ] Comparable case research
-- [ ] Statute of limitations checker
+### Phase 3: Damages Calculation ✅
+- [x] Damages Calculator Agent
+- [x] Code execution for math (BuiltInCodeExecutor)
+- [x] Multiplier guidance
+- [x] Save to hub
 
-### Phase 4: Damages Calculation
-- [ ] Create Damages Calculator Agent
-- [ ] Economic damages computation
-- [ ] Pain & suffering estimation
-- [ ] Settlement range algorithm
-- [ ] Lien consideration
+### Phase 4: Agent Orchestration ✅
+- [x] Hub tools for Live Agent
+- [x] Sub-agents as AgentTool
+- [x] Simplified to 3 agents
 
-### Phase 5: Agent Orchestration
-- [ ] Integrate sub-agents with AgentTool
-- [ ] Context passing between agents
-- [ ] Response aggregation
-- [ ] Real-time updates to UI
-
-### Phase 6: UI Integration
-- [ ] Case dashboard with all computed info
+### Phase 5: UI Integration ⏳
+- [ ] Case dashboard
+- [ ] Evidence upload interface
 - [ ] Real-time transcript display
-- [ ] Evidence viewer with highlights
 - [ ] Settlement estimate display
-- [ ] Timeline visualization
 
 ---
 
@@ -259,32 +208,45 @@ backend/
 ├── app/
 │   ├── agents/
 │   │   ├── __init__.py
-│   │   ├── live_agent.py           # Root agent (voice)
-│   │   ├── evidence_agent.py       # Document analysis
-│   │   ├── research_agent.py       # Legal research
-│   │   └── damages_agent.py        # Case valuation
-│   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── document_parser.py      # PDF/image extraction
-│   │   └── calculator.py           # Damages math
+│   │   ├── live_agent.py         # Root agent + hub tools
+│   │   ├── evidence_agent.py     # Document/image analysis
+│   │   └── damages_agent.py      # Settlement calculation
 │   ├── services/
-│   │   ├── gemini_live_service.py  # WebSocket streaming
-│   │   └── evidence_service.py     # File handling
+│   │   ├── evidence_hub.py       # Central state ⭐
+│   │   ├── rag_service.py        # Vertex AI RAG
+│   │   ├── vision_service.py     # Gemini Vision
+│   │   └── gemini_live_service.py
 │   └── routers/
-│       ├── gemini_live.py          # Voice endpoints
-│       └── evidence.py             # Upload endpoints
+│       └── gemini_live.py
+├── evidence/                     # Test evidence files
+└── tests/
 ```
 
 ---
 
 ## Demo Flow
 
-1. **User calls Lexie** → Live Agent greets, asks about incident
-2. **User describes fall** → Agent asks follow-up questions
-3. **User uploads documents** → Evidence Agent extracts facts
-4. **Agent researches** → Legal Research Agent finds OSHA violations
-5. **Agent calculates** → Damages Agent computes settlement range
-6. **Summary displayed** → UI shows case analysis in real-time
+```
+1. User calls Lexie
+   └─> Live Agent greets, asks about incident
+
+2. User describes construction fall
+   └─> Live Agent: update_case_facts(incident_description, ...)
+   └─> Live Agent: initialize_case("construction_fall")
+
+3. Gather facts incrementally
+   └─> Live Agent asks questions, saves with update_case_facts()
+
+4. Gather evidence one by one
+   └─> Live Agent: request_evidence_upload(...)
+   └─> User uploads → evidence_agent analyzes
+
+5. Calculate damages
+   └─> Live Agent → damages_agent (code execution)
+
+6. Generate summary
+   └─> Live Agent: get_case_summary()
+```
 
 ---
 
@@ -292,8 +254,9 @@ backend/
 
 - [ ] Voice conversation feels natural and empathetic
 - [ ] Interruption works instantly (< 200ms)
-- [ ] Evidence analysis extracts accurate information
-- [ ] Legal research finds relevant regulations
-- [ ] Damages calculation matches realistic estimates
-- [ ] All agents work together seamlessly
-- [ ] Demo runs reliably for competition
+- [ ] Evidence checklist initializes correctly
+- [ ] Facts saved incrementally as gathered
+- [ ] Document analysis works end-to-end
+- [ ] Damages calculation uses code execution
+- [ ] Settlement range is realistic
+- [ ] Demo runs reliably

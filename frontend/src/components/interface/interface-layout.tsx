@@ -6,6 +6,7 @@ import TabCanvas from '@/components/tab-canvas/tab-canvas';
 import VoiceChat from '@/components/voice-chat/voice-chat';
 import { type Evidence } from '@/lib/mock-data';
 import { Layers, MessageSquare, FolderOpen } from 'lucide-react';
+import { EvidenceProvider } from '@/contexts/evidence-context';
 
 interface ResizeHandleProps {
   onResize: (width: number) => void;
@@ -81,9 +82,10 @@ export default function InterfaceLayout() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      {/* Header */}
-      <header className="flex-shrink-0 bg-white border-b border-gray-200">
+    <EvidenceProvider>
+      <div className="flex flex-col h-screen bg-gray-50">
+        {/* Header */}
+        <header className="flex-shrink-0 bg-white border-b border-gray-200">
         <div className="flex items-center justify-between px-6 py-3">
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 bg-black rounded-md flex items-center justify-center">
@@ -155,5 +157,6 @@ export default function InterfaceLayout() {
         )}
       </div>
     </div>
+    </EvidenceProvider>
   );
 }

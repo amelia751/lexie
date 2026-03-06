@@ -6,14 +6,16 @@ import {
   History,
   Microscope,
   HatGlasses,
+  FolderOpen,
   X,
 } from 'lucide-react';
 import CaseSummaryView from './views/case-summary-view';
 import TimelineView from './views/timeline-view';
 import DamagesView from './views/damages-view';
 import MedicalSummaryView from './views/medical-summary-view';
+import EvidenceHubView from './views/evidence-hub-view';
 
-type TabType = 'summary' | 'timeline' | 'damages' | 'medical';
+type TabType = 'summary' | 'timeline' | 'damages' | 'medical' | 'evidence';
 
 interface Tab {
   id: TabType;
@@ -26,6 +28,7 @@ const tabs: Tab[] = [
   { id: 'timeline', label: 'Timeline', icon: <History className="w-4 h-4" /> },
   { id: 'medical', label: 'Medical Summary', icon: <Microscope className="w-4 h-4" /> },
   { id: 'damages', label: 'Damages Analysis', icon: <HatGlasses className="w-4 h-4" /> },
+  { id: 'evidence', label: 'Evidence Hub', icon: <FolderOpen className="w-4 h-4" /> },
 ];
 
 export default function TabCanvas() {
@@ -59,6 +62,8 @@ export default function TabCanvas() {
         return <DamagesView />;
       case 'medical':
         return <MedicalSummaryView />;
+      case 'evidence':
+        return <EvidenceHubView />;
       default:
         return null;
     }
