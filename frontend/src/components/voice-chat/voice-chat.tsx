@@ -1,15 +1,17 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { mockConversation, type VoiceMessage } from '@/lib/mock-data';
-import { Mic, MicOff, Volume2, VolumeX, Phone } from 'lucide-react';
+import { mockConversationWithDocuments, type VoiceMessage } from '@/lib/mock-data';
+import { Mic, MicOff, Phone, Upload, X, Clock } from 'lucide-react';
 
 export default function VoiceChat() {
   const [isListening, setIsListening] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [documentResponses, setDocumentResponses] = useState<Record<number, 'uploaded' | 'dont-have' | 'later' | null>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -24,9 +26,9 @@ export default function VoiceChat() {
     setMessages([]);
     setIsListening(true);
 
-    for (let i = 0; i < mockConversation.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setMessages(prev => [...prev, mockConversation[i]]);
+    for (let i = 0; i < mockConversationWithDocuments.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setMessages(prev => [...prev, mockConversationWithDocuments[i]]);
     }
 
     setIsSimulating(false);
@@ -39,7 +41,28 @@ export default function VoiceChat() {
     } else if (!isSimulating) {
       setIsListening(false);
       setMessages([]);
+      setDocumentResponses({});
     }
+  };
+
+  const handleDocumentUpload = (messageIndex: number, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'uploaded' }));
+      // In real app, would upload file here
+    }
+  };
+
+  const handleDontHave = (messageIndex: number) => {
+    setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'dont-have' }));
+  };
+
+  const handleLater = (messageIndex: number) => {
+    setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'later' }));
+  };
+
+  const handleUploadClick = (messageIndex: number) => {
+    fileInputRefs.current[messageIndex]?.click();
   };
 
   return (
@@ -69,25 +92,124 @@ export default function VoiceChat() {
         ) : (
           <>
             {messages.map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${message.role === 'agent' ? 'justify-start' : 'justify-end'}`}
-              >
+              <div key={index} className="space-y-2">
+                {/* Message Bubble */}
                 <div
-                  className={`max-w-[80%] px-3 py-2 border rounded-lg ${
-                    message.role === 'agent'
-                      ? 'bg-white border-gray-300 text-gray-900'
-                      : 'bg-black border-black text-white'
-                  }`}
+                  className={`flex ${message.role === 'agent' ? 'justify-start' : 'justify-end'}`}
                 >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide">
-                      {message.role === 'agent' ? 'Agent' : 'Client'}
-                    </span>
-                    <span className="text-[10px] opacity-70">{message.timestamp}</span>
+                  <div
+                    className={`max-w-[80%] px-3 py-2 border rounded-lg ${
+                      message.role === 'agent'
+                        ? 'bg-white border-gray-300'
+                        : 'bg-black border-black text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                        {message.role === 'agent' ? 'Agent' : 'Client'}
+                      </span>
+                      <span className="text-[10px] text-gray-400">{message.timestamp}</span>
+                    </div>
+                    <p className={`text-xs leading-relaxed ${message.role === 'agent' ? 'text-gray-900' : 'text-white'}`}>
+                      {message.content}
+                    </p>
                   </div>
-                  <p className="text-xs leading-relaxed">{message.content}</p>
                 </div>
+
+                {/* Document Request Interactive Card */}
+                {message.documentRequest && (
+                  <div className="flex justify-start">
+                    <div className="w-full max-w-[85%] border border-gray-200 rounded-lg bg-white overflow-hidden">
+                      {/* Header */}
+                      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                            {message.documentRequest.priority === 'critical' ? 'Required' : message.documentRequest.priority === 'important' ? 'Important' : 'Helpful'}
+                          </div>
+                          <div className="text-[10px] text-gray-400">
+                            {message.documentRequest.type}
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-700 mt-1">
+                          {message.documentRequest.description}
+                        </div>
+                      </div>
+
+                      {/* Response UI */}
+                      {!documentResponses[index] ? (
+                        <div className="p-3 space-y-2">
+                          {/* Hidden file input */}
+                          <input
+                            ref={(el) => { fileInputRefs.current[index] = el; }}
+                            type="file"
+                            className="hidden"
+                            onChange={(e) => handleDocumentUpload(index, e)}
+                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.zip"
+                          />
+
+                          {/* Upload Zone */}
+                          <button
+                            onClick={() => handleUploadClick(index)}
+                            className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                          >
+                            <div className="flex flex-col items-center gap-1.5">
+                              <Upload className="w-4 h-4 text-gray-400" />
+                              <div className="text-xs font-medium text-gray-700">Upload Document</div>
+                              <div className="text-[10px] text-gray-500">Click to browse or drag & drop</div>
+                            </div>
+                          </button>
+
+                          {/* Action Buttons */}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleDontHave(index)}
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                              I don't have this
+                            </button>
+                            <button
+                              onClick={() => handleLater(index)}
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                            >
+                              <Clock className="w-3 h-3" />
+                              I'll provide later
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3">
+                          <div className={`flex items-center gap-2 px-3 py-2 rounded-md ${
+                            documentResponses[index] === 'uploaded'
+                              ? 'bg-green-50 text-green-700'
+                              : documentResponses[index] === 'dont-have'
+                              ? 'bg-gray-100 text-gray-600'
+                              : 'bg-blue-50 text-blue-700'
+                          }`}>
+                            {documentResponses[index] === 'uploaded' && (
+                              <>
+                                <Upload className="w-3.5 h-3.5" />
+                                <span className="text-xs font-medium">Document uploaded</span>
+                              </>
+                            )}
+                            {documentResponses[index] === 'dont-have' && (
+                              <>
+                                <X className="w-3.5 h-3.5" />
+                                <span className="text-xs font-medium">Marked as not available</span>
+                              </>
+                            )}
+                            {documentResponses[index] === 'later' && (
+                              <>
+                                <Clock className="w-3.5 h-3.5" />
+                                <span className="text-xs font-medium">Will provide later</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
             <div ref={messagesEndRef} />
@@ -123,17 +245,6 @@ export default function VoiceChat() {
               <Mic className="w-5 h-5 text-gray-900 relative z-10" />
             )}
           </button>
-
-          {/* Status Text */}
-          <div className="text-center">
-            <p className="text-xs font-medium text-gray-900">
-              {isSimulating
-                ? 'Processing...'
-                : isListening
-                ? 'Recording'
-                : 'Start Intake'}
-            </p>
-          </div>
 
           {/* Equalizer when listening */}
           {isListening && (

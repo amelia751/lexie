@@ -31,6 +31,16 @@ export interface VoiceMessage {
   role: 'agent' | 'plaintiff';
   content: string;
   timestamp: string;
+  toolCall?: {
+    name: string;
+    args?: Record<string, any>;
+    result?: string;
+  };
+  documentRequest?: {
+    type: string;
+    description: string;
+    priority: 'critical' | 'important' | 'helpful';
+  };
 }
 
 export const mockEvidence: Evidence[] = [
@@ -329,6 +339,139 @@ export const mockConversation: VoiceMessage[] = [
     role: 'plaintiff',
     content: "I've been going to physical therapy three times a week. The pain is getting better, but I still can't turn my head all the way without discomfort.",
     timestamp: '10:32:10',
+  },
+];
+
+// Enhanced conversation with document requests and tool usage
+export const mockConversationWithDocuments: VoiceMessage[] = [
+  {
+    role: 'agent',
+    content: "Hello, I'm Lexie, your AI legal intake assistant. I'm here to help gather information about your workplace injury case. Can you tell me what happened?",
+    timestamp: '10:30:15',
+  },
+  {
+    role: 'plaintiff',
+    content: "Hi. I fell from a scaffold at a construction site two weeks ago. Hurt my back pretty bad.",
+    timestamp: '10:30:32',
+  },
+  {
+    role: 'agent',
+    content: "I'm very sorry to hear that. Let me gather some important details. Can you tell me the date of the incident and where this happened?",
+    timestamp: '10:30:45',
+  },
+  {
+    role: 'plaintiff',
+    content: "It was February 20th, 2024, around 2 PM. The construction site on 5th Avenue, the new office building project.",
+    timestamp: '10:31:02',
+  },
+  {
+    role: 'agent',
+    content: "Thank you. Let me check what evidence we'll need for your case.",
+    timestamp: '10:31:15',
+    toolCall: {
+      name: 'get_evidence_checklist',
+      result: 'Retrieved construction fall checklist - 12 items needed',
+    },
+  },
+  {
+    role: 'agent',
+    content: "Do you have the incident report from your employer?",
+    timestamp: '10:31:25',
+    toolCall: {
+      name: 'request_evidence_upload',
+      args: {
+        evidence_type: 'incident_report',
+        description: "Employer's incident/accident report",
+      },
+    },
+    documentRequest: {
+      type: 'incident_report',
+      description: "Employer's incident/accident report",
+      priority: 'critical',
+    },
+  },
+  {
+    role: 'agent',
+    content: "Thank you! I've reviewed the incident report. It shows you fell from a 12-foot scaffold with possible safety violations. Do you have your emergency room medical records?",
+    timestamp: '10:32:25',
+    toolCall: {
+      name: 'request_evidence_upload',
+      args: {
+        evidence_type: 'medical_records_er',
+        description: 'Emergency room records from day of injury',
+      },
+    },
+    documentRequest: {
+      type: 'medical_records_er',
+      description: 'Emergency room records from day of injury',
+      priority: 'critical',
+    },
+  },
+  {
+    role: 'agent',
+    content: "Do you have photos of the accident scene or the scaffold?",
+    timestamp: '10:33:05',
+    toolCall: {
+      name: 'request_evidence_upload',
+      args: {
+        evidence_type: 'photos_scene',
+        description: 'Photos of the accident scene/location',
+      },
+    },
+    documentRequest: {
+      type: 'photos_scene',
+      description: 'Photos of the accident scene/location',
+      priority: 'important',
+    },
+  },
+  {
+    role: 'agent',
+    content: "These photos are excellent evidence. They clearly show the scaffold height and missing safety railings. Do you have photos of your injuries?",
+    timestamp: '10:34:05',
+    toolCall: {
+      name: 'request_evidence_upload',
+      args: {
+        evidence_type: 'photos_injuries',
+        description: 'Photos of injuries',
+      },
+    },
+    documentRequest: {
+      type: 'photos_injuries',
+      description: 'Photos of injuries',
+      priority: 'important',
+    },
+  },
+  {
+    role: 'agent',
+    content: "Do you have witness statements from other workers who saw the fall?",
+    timestamp: '10:34:42',
+    toolCall: {
+      name: 'request_evidence_upload',
+      args: {
+        evidence_type: 'witness_statements',
+        description: 'Written statements from witnesses',
+      },
+    },
+    documentRequest: {
+      type: 'witness_statements',
+      description: 'Written statements from witnesses',
+      priority: 'important',
+    },
+  },
+  {
+    role: 'agent',
+    content: "Thank you for providing those documents. How are you feeling right now?",
+    timestamp: '10:35:25',
+  },
+  {
+    role: 'plaintiff',
+    content: "Still in a lot of pain. Doctor said I have three fractured vertebrae and need surgery.",
+    timestamp: '10:35:42',
+  },
+  {
+    role: 'agent',
+    content: "I'm so sorry to hear that. That's very serious. Make sure to keep all your medical records and bills. Based on similar construction fall cases with vertebral fractures, these cases typically result in significant compensation. We'll build a strong case for you.",
+    timestamp: '10:35:58',
   },
 ];
 
