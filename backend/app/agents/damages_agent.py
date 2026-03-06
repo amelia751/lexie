@@ -3,10 +3,17 @@ Damages Calculator Agent
 
 Computes case valuation and settlement estimates using code execution.
 Uses Python code for reliable math calculations.
+
+Inspired by novalyst's approach: custom exec() tool instead of ADK's BuiltInCodeExecutor
+to avoid conflicts with AgentTool sub-agent orchestration.
 """
 
+import re
+import sys
+from io import StringIO
+from typing import Optional
+
 from google.adk.agents import Agent
-from google.adk.code_executors import BuiltInCodeExecutor
 
 from app.services.evidence_hub import evidence_hub
 
@@ -28,7 +35,7 @@ Your role is to compute accurate case valuations and settlement estimates.
 3. **Comparable Verdicts**: Similar cases in jurisdiction
 
 ## IMPORTANT - Use Code Execution:
-You MUST use the built_in_code_execution tool for ALL mathematical calculations.
+You MUST use the execute_python_code tool for ALL mathematical calculations.
 Write Python code to perform the math - DO NOT calculate in your head.
 
 Example:
@@ -65,6 +72,114 @@ Provide a structured breakdown:
 - Settlement Range (low/high)
 
 Remember: ALWAYS use code execution for math. Never estimate numbers without calculating."""
+
+
+# ==================== CUSTOM CODE EXECUTION (like novalyst) ====================
+
+def execute_python_code(code: str) -> dict:
+    """
+    Execute Python code for mathematical calculations.
+    
+    This tool allows you to run Python code for accurate arithmetic.
+    Use this for ALL calculations - do not calculate in your head.
+    
+    Args:
+        code: Python code to execute. Can use standard math, print() for output.
+    
+    Returns:
+        Dict with execution result (success/error and output)
+    
+    Example:
+        code = '''
+        medical = 45000
+        lost_wages = 15000
+        total = medical + lost_wages
+        multiplier = 2.5
+        non_economic = total * multiplier
+        print(f"Economic: ${total:,.2f}")
+        print(f"Non-Economic: ${non_economic:,.2f}")
+        print(f"Total: ${total + non_economic:,.2f}")
+        '''
+    """
+    # Security: Block dangerous imports (check for actual import statements)
+    BLOCKED_IMPORTS = [
+        r'\bimport\s+subprocess\b',
+        r'\bfrom\s+subprocess\b',
+        r'\bimport\s+os\b',
+        r'\bfrom\s+os\b',
+        r'\bos\.',  # os.system, os.popen, etc.
+        r'\bimport\s+shutil\b',
+        r'\bfrom\s+shutil\b',
+        r'\bimport\s+socket\b',
+        r'\bfrom\s+socket\b',
+        r'\bimport\s+requests\b',
+        r'\bfrom\s+requests\b',
+        r'\bimport\s+urllib\b',
+        r'\bfrom\s+urllib\b',
+        r'__import__\s*\(',
+        r'\beval\s*\(',
+        r'\bexec\s*\(',
+        r'\bcompile\s*\(',
+        r'\bopen\s*\(',
+    ]
+    for pattern in BLOCKED_IMPORTS:
+        if re.search(pattern, code):
+            return {
+                "status": "error",
+                "error": f"Security: Pattern '{pattern}' is not allowed in code execution"
+            }
+    
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = captured_output = StringIO()
+        
+        # Safe globals for math calculations
+        exec_globals = {
+            '__builtins__': {
+                'print': print,
+                'range': range,
+                'len': len,
+                'sum': sum,
+                'min': min,
+                'max': max,
+                'round': round,
+                'abs': abs,
+                'float': float,
+                'int': int,
+                'str': str,
+                'list': list,
+                'dict': dict,
+                'tuple': tuple,
+                'True': True,
+                'False': False,
+                'None': None,
+            }
+        }
+        exec_locals = {}
+        
+        # Execute the code
+        exec(code, exec_globals, exec_locals)
+        
+        # Get output
+        output = captured_output.getvalue()
+        
+        # Restore stdout
+        sys.stdout = old_stdout
+        
+        return {
+            "status": "success",
+            "output": output if output else "Code executed successfully (no print output)",
+            "variables": {k: v for k, v in exec_locals.items() if not k.startswith('_') and isinstance(v, (int, float, str, list, dict))}
+        }
+        
+    except Exception as e:
+        sys.stdout = old_stdout
+        return {
+            "status": "error",
+            "error": str(e),
+            "code": code[:200]
+        }
 
 
 def get_case_damages_data() -> dict:
@@ -181,7 +296,7 @@ def get_multiplier_guidance(injury_severity: str) -> dict:
         "recommended_multiplier": guidance["recommended"],
         "description": guidance["description"],
         "typical_injuries": guidance["examples"],
-        "note": "Use code_execution to apply this multiplier to economic damages."
+        "note": "Use execute_python_code to apply this multiplier to economic damages."
     }
 
 
@@ -250,7 +365,7 @@ print(f"Past Lost Wages: ${{past_lost_wages:,.2f}}")
 print(f"Future Lost Earnings: ${{future_lost_earnings:,.2f}}")
 print(f"Total: ${{total_lost_wages:,.2f}}")
 """,
-        "instruction": "Run this code using built_in_code_execution, adjusting values as needed."
+        "instruction": "Run this code using execute_python_code, adjusting values as needed."
     }
 
 
@@ -261,18 +376,21 @@ damages_agent = Agent(
     description="Calculates case damages and settlement estimates using code execution for accurate math",
     instruction=DAMAGES_AGENT_INSTRUCTION,
     tools=[
+        execute_python_code,  # Custom code execution (like novalyst)
         get_case_damages_data,
         save_damages_calculation,
         get_multiplier_guidance,
         calculate_lost_wages,
     ],
-    code_executor=BuiltInCodeExecutor(),  # Enable Python code execution
+    # Note: Using custom execute_python_code tool instead of code_executor
+    # to avoid conflicts with AgentTool sub-agent orchestration
 )
 
 
 # Export
 __all__ = [
     "damages_agent",
+    "execute_python_code",
     "get_case_damages_data",
     "save_damages_calculation",
     "get_multiplier_guidance",

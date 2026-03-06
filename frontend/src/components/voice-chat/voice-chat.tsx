@@ -46,26 +46,11 @@ export default function VoiceChat() {
     <div className="flex flex-col h-full bg-white border-l border-gray-200">
       {/* Header */}
       <div className="flex-shrink-0 px-4 py-2.5 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Voice Intake</h2>
-            <p className="text-[10px] text-gray-500 mt-0.5">
-              {isListening ? 'Active' : 'Ready'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsMuted(!isMuted)}
-              className="p-1 border border-gray-300 rounded hover:border-gray-400 transition-colors"
-              title={isMuted ? 'Unmute' : 'Mute'}
-            >
-              {isMuted ? (
-                <VolumeX className="w-3.5 h-3.5 text-gray-600" />
-              ) : (
-                <Volume2 className="w-3.5 h-3.5 text-gray-600" />
-              )}
-            </button>
-          </div>
+        <div>
+          <h2 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Voice Intake</h2>
+          <p className="text-[10px] text-gray-500 mt-0.5">
+            {isListening ? 'Active' : 'Ready'}
+          </p>
         </div>
       </div>
 
@@ -111,13 +96,13 @@ export default function VoiceChat() {
       </div>
 
       {/* Voice Control */}
-      <div className="flex-shrink-0 p-6 border-t border-gray-200 bg-gray-50">
-        <div className="flex flex-col items-center gap-4">
+      <div className="flex-shrink-0 p-4 border-t border-gray-200">
+        <div className="flex flex-col items-center gap-3">
           {/* Microphone Button */}
           <button
             onClick={handleToggleListening}
             disabled={isSimulating}
-            className={`relative w-16 h-16 border-2 rounded-xl flex items-center justify-center transition-all ${
+            className={`relative w-12 h-12 border-2 rounded-lg flex items-center justify-center transition-all ${
               isListening
                 ? 'bg-black border-black'
                 : 'bg-white border-gray-300 hover:border-gray-400'
@@ -126,16 +111,16 @@ export default function VoiceChat() {
             {/* Pulse rings when listening */}
             {isListening && (
               <>
-                <div className="absolute inset-0 border-2 border-black rounded-xl animate-pulse-ring"></div>
-                <div className="absolute inset-0 border-2 border-black rounded-xl animate-pulse-ring" style={{ animationDelay: '1s' }}></div>
+                <div className="absolute inset-0 border-2 border-black rounded-lg animate-pulse-ring"></div>
+                <div className="absolute inset-0 border-2 border-black rounded-lg animate-pulse-ring" style={{ animationDelay: '1s' }}></div>
               </>
             )}
 
             {/* Icon */}
             {isListening ? (
-              <MicOff className="w-6 h-6 text-white relative z-10" />
+              <MicOff className="w-5 h-5 text-white relative z-10" />
             ) : (
-              <Mic className="w-6 h-6 text-gray-900 relative z-10" />
+              <Mic className="w-5 h-5 text-gray-900 relative z-10" />
             )}
           </button>
 
@@ -148,14 +133,11 @@ export default function VoiceChat() {
                 ? 'Recording'
                 : 'Start Intake'}
             </p>
-            {isListening && !isSimulating && (
-              <p className="text-[10px] text-gray-500 mt-1">Click to stop</p>
-            )}
           </div>
 
           {/* Equalizer when listening */}
           {isListening && (
-            <div className="flex items-center gap-1 h-6">
+            <div className="flex items-center gap-1 h-4">
               {[...Array(5)].map((_, i) => (
                 <div
                   key={i}
@@ -169,16 +151,6 @@ export default function VoiceChat() {
           )}
         </div>
       </div>
-
-      {/* Conversation Stats */}
-      {messages.length > 0 && (
-        <div className="flex-shrink-0 px-4 py-2 border-t border-gray-200 bg-white">
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>{messages.length} messages</span>
-            <span>Duration: {Math.floor(messages.length * 1.5 / 60)}:{((messages.length * 1.5) % 60).toString().padStart(2, '0')}</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
