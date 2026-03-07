@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  FileText,
+  FileSearch,
   History,
   Microscope,
   HatGlasses,
@@ -24,7 +24,7 @@ interface Tab {
 }
 
 const tabs: Tab[] = [
-  { id: 'summary', label: 'Case Summary', icon: <FileText className="w-4 h-4" /> },
+  { id: 'summary', label: 'Case Summary', icon: <FileSearch className="w-4 h-4" /> },
   { id: 'timeline', label: 'Timeline', icon: <History className="w-4 h-4" /> },
   { id: 'medical', label: 'Medical Summary', icon: <Microscope className="w-4 h-4" /> },
   { id: 'damages', label: 'Damages Analysis', icon: <HatGlasses className="w-4 h-4" /> },
@@ -81,11 +81,11 @@ export default function TabCanvas() {
             return (
               <div
                 key={tab.id}
-                className={`group flex items-center gap-2 px-4 py-2 text-xs font-medium transition-colors border-b cursor-pointer ${
+                className={`group flex items-center gap-2 px-4 py-2 text-xs font-medium transition-colors border-b-2 cursor-pointer ${
                   isActive
-                    ? 'border-black text-black bg-white'
+                    ? 'border-true-turquoise text-true-turquoise bg-white'
                     : isOpen
-                    ? 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    ? 'border-transparent text-gray-600 hover:text-true-turquoise hover:bg-gray-50'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                 }`}
                 onClick={() => handleTabClick(tab.id)}
