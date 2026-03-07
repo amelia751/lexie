@@ -138,21 +138,16 @@ def mark_evidence_not_available(evidence_id: str, reason: str = "") -> dict:
 def handle_evidence_response(has_document: bool, can_provide_later: bool = False) -> dict:
     """
     Handle user's response about the CURRENT evidence item being discussed.
-    This is a SIMPLER alternative to mark_evidence_pending/mark_evidence_not_available.
     
     CALL THIS IMMEDIATELY after asking user about an evidence item.
+    Returns follow-up questions to ask based on the evidence type and response.
     
     Args:
         has_document: True if user says they have the document (yes/I have it)
         can_provide_later: True if user says they can get it later (not now but I can get it)
     
     Returns:
-        Dict with result and the NEXT item to ask about
-    
-    Examples:
-        - User says "Yes, I have it" → handle_evidence_response(has_document=True)
-        - User says "No, I don't have it" → handle_evidence_response(has_document=False)
-        - User says "Not now but I can get it" → handle_evidence_response(has_document=False, can_provide_later=True)
+        Dict with result, next item, and FOLLOW-UP QUESTIONS to ask
     """
     # Get the current item being discussed (first REQUIRED item)
     current_item = evidence_hub.get_next_required_evidence()
@@ -166,13 +161,14 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
     
     # Determine status based on response
     if has_document or can_provide_later:
-        # User has it or will get it later -> mark as pending (will provide)
         evidence_hub.update_evidence_status(current_item.id, EvidenceStatus.PENDING)
         new_status = "pending"
     else:
-        # User doesn't have it and can't get it -> mark as not available
         evidence_hub.update_evidence_status(current_item.id, EvidenceStatus.NOT_AVAILABLE)
         new_status = "not_available"
+    
+    # Generate follow-up questions based on evidence type
+    follow_up = _get_follow_up_questions(current_item.type, new_status, can_provide_later)
     
     # Get the NEXT item to ask about
     next_item = evidence_hub.get_next_required_evidence()
@@ -181,7 +177,9 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
     return {
         "status": "success",
         "processed_item": current_item.description,
+        "processed_type": current_item.type,
         "marked_as": new_status,
+        "follow_up": follow_up,  # Questions to ask based on response
         "remaining_items": checklist_status["required"],
         "next_item": {
             "id": next_item.id,
@@ -190,6 +188,98 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
         } if next_item else None,
         "action": "ASK_NEXT" if next_item else "PROCEED_TO_SUMMARY"
     }
+
+
+def _get_follow_up_questions(evidence_type: str, status: str, will_provide_later: bool) -> dict:
+    """Generate follow-up questions based on evidence type and user response."""
+    
+    # Define key questions for each evidence type
+    questions_map = {
+        "incident_report": {
+            "key_facts": ["exact date and time", "location/address", "how it happened", "who witnessed it"],
+            "ask_if_missing": "Can you tell me the exact date, time, and location of the incident? Who else was there when it happened?"
+        },
+        "medical_records_er": {
+            "key_facts": ["hospital name", "date of visit", "diagnosis", "treating physician"],
+            "ask_if_missing": "Which hospital did you go to? What was the date? What injuries were diagnosed?"
+        },
+        "medical_records": {
+            "key_facts": ["provider name", "dates of treatment", "diagnosis", "treatment plan"],
+            "ask_if_missing": "Who is your treating doctor? What injuries were diagnosed? What treatment are you receiving?"
+        },
+        "witness_statements": {
+            "key_facts": ["witness names", "what they saw", "contact info"],
+            "ask_if_missing": "Do you know the names of anyone who saw the incident? What did they witness?"
+        },
+        "photos": {
+            "key_facts": ["what photos show", "when taken", "by whom"],
+            "ask_if_missing": "Can you describe what the scene/injuries looked like? When did you first notice visible injuries?"
+        },
+        "employment_records": {
+            "key_facts": ["hourly wage/salary", "hours per week", "job title", "start date"],
+            "ask_if_missing": "What is your hourly wage or salary? How many hours do you typically work per week?"
+        },
+        "safety_training": {
+            "key_facts": ["training received", "dates", "certifications"],
+            "ask_if_missing": "Did you receive safety training for this type of work? When was your last training?"
+        },
+        "workers_comp": {
+            "key_facts": ["claim filed", "claim number", "status"],
+            "ask_if_missing": "Have you filed a workers' compensation claim? Do you know the claim number or status?"
+        },
+        "osha_report": {
+            "key_facts": ["investigation done", "findings", "citations"],
+            "ask_if_missing": "Was there an OSHA investigation? Do you know if any violations were found?"
+        },
+        "medical_imaging": {
+            "key_facts": ["type of imaging", "findings", "date"],
+            "ask_if_missing": "What imaging was done (X-ray, MRI, CT)? What did they find?"
+        },
+        "physical_therapy": {
+            "key_facts": ["provider", "frequency", "progress"],
+            "ask_if_missing": "Are you receiving physical therapy? How often? How is your recovery going?"
+        },
+        "medical_bills": {
+            "key_facts": ["total amount", "what's paid", "what's owed"],
+            "ask_if_missing": "Do you have an estimate of your total medical expenses so far?"
+        }
+    }
+    
+    # Find matching type (partial match)
+    matched_type = None
+    for key in questions_map:
+        if key in evidence_type.lower():
+            matched_type = key
+            break
+    
+    if not matched_type:
+        matched_type = "incident_report"  # Default fallback
+    
+    info = questions_map[matched_type]
+    
+    if status == "not_available":
+        return {
+            "action": "ASK_FOR_DETAILS",
+            "reason": "User doesn't have this document - gather details verbally",
+            "questions": info["ask_if_missing"],
+            "key_facts_needed": info["key_facts"],
+            "note": "Save any details provided using update_case_facts()"
+        }
+    elif will_provide_later:
+        return {
+            "action": "ASK_PRELIMINARY",
+            "reason": "User will provide later - gather preliminary info now",
+            "questions": info["ask_if_missing"],
+            "key_facts_needed": info["key_facts"],
+            "note": "Mark these as preliminary - may be updated when document arrives"
+        }
+    else:  # has document
+        return {
+            "action": "AWAIT_DOCUMENT",
+            "reason": "User has document - wait for them to share it",
+            "key_facts_to_extract": info["key_facts"],
+            "note": "When they share content, extract these facts and compare with existing data"
+        }
 
 
 def update_case_facts(field: str, value) -> dict:
@@ -402,12 +492,32 @@ The loop:
    - "Yes/I have it" → `handle_evidence_response(has_document=True)`
    - "No/Don't have" → `handle_evidence_response(has_document=False)`
    - "Can get later" → `handle_evidence_response(has_document=False, can_provide_later=True)`
-4. Check the result's `action`:
+
+4. **AFTER marking, ask FOLLOW-UP QUESTIONS based on response:**
+
+   **If "NO" (doesn't have document):**
+   - Ask for the KEY DETAILS that document would contain
+   - Example: No incident report → "Can you tell me the exact date, time, and location? Who else was there?"
+   - Example: No medical records → "What injuries were diagnosed? Who was the treating physician?"
+   - Save these details with `update_case_facts()` - they're verbal testimony
+   
+   **If "WILL PROVIDE LATER":**
+   - Still ask clarifying questions for preliminary info
+   - Note: "These details may be updated when we receive the actual document"
+   - Mark facts as preliminary in your response
+   
+   **If "YES" (has document):**
+   - When user shares document content, EXTRACT key facts
+   - COMPARE with previously recorded facts
+   - If DISPARITY found → "I notice the document says [X] but you mentioned [Y]. Which is correct?"
+   - Update facts only AFTER user confirms
+
+5. Check the result's `action`:
    - "ASK_NEXT" → ask about `next_item`
    - "PROCEED_TO_SUMMARY" → done, go to Phase 5
 
-**⚠️ NEVER say "we'll get to that later" - ALWAYS call handle_evidence_response() NOW.**
-**⚠️ If user volunteers evidence info unprompted, still call handle_evidence_response().**
+**⚠️ NEVER just mark and move on - ALWAYS gather details even if no document!**
+**⚠️ When evidence contradicts user's verbal info, ASK to confirm before updating.**
 
 ### Phase 5: Summarize & Wrap Up
 - Call `get_case_summary()` to generate the final case summary
