@@ -45,7 +45,17 @@ export function EvidenceProvider({ children }: { children: ReactNode }) {
   ]);
 
   const addEvidence = (newEvidence: Evidence) => {
-    setEvidence((prev) => [...prev, newEvidence]);
+    setEvidence((prev) => {
+      const existingIndex = prev.findIndex(item => item.id === newEvidence.id);
+      if (existingIndex >= 0) {
+        // Update existing item
+        const updated = [...prev];
+        updated[existingIndex] = newEvidence;
+        return updated;
+      }
+      // Add new item
+      return [...prev, newEvidence];
+    });
   };
 
   const addEvidenceItem = (item: EvidenceItem) => {

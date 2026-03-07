@@ -10,8 +10,9 @@ and damages calculation.
 """
 
 from google.adk.agents import Agent
-from google.adk.tools import google_search
 from google.adk.tools.agent_tool import AgentTool
+# NOTE: google_search removed - incompatible with custom function tools in Vertex AI
+# Error: "Multiple tools are supported only when they are all search tools"
 
 from app.services.evidence_hub import (
     evidence_hub,
@@ -90,7 +91,7 @@ def mark_evidence_pending(evidence_id: str, reason: str = "") -> dict:
     Mark an evidence item as pending (user will provide later).
     
     Args:
-        evidence_id: ID of the evidence item
+        evidence_id: ID of the evidence item (e.g., "incident_report_0", "medical_records_er_1")
         reason: Optional reason why it's pending
     
     Returns:
@@ -115,7 +116,7 @@ def mark_evidence_not_available(evidence_id: str, reason: str = "") -> dict:
     Mark an evidence item as not available (user doesn't have it).
     
     Args:
-        evidence_id: ID of the evidence item
+        evidence_id: ID of the evidence item (e.g., "incident_report_0", "photos_scene_4")
         reason: Why the evidence is not available
     
     Returns:
@@ -131,6 +132,63 @@ def mark_evidence_not_available(evidence_id: str, reason: str = "") -> dict:
         "evidence_id": evidence_id,
         "new_status": "not_available",
         "reason": reason
+    }
+
+
+def handle_evidence_response(has_document: bool, can_provide_later: bool = False) -> dict:
+    """
+    Handle user's response about the CURRENT evidence item being discussed.
+    This is a SIMPLER alternative to mark_evidence_pending/mark_evidence_not_available.
+    
+    CALL THIS IMMEDIATELY after asking user about an evidence item.
+    
+    Args:
+        has_document: True if user says they have the document (yes/I have it)
+        can_provide_later: True if user says they can get it later (not now but I can get it)
+    
+    Returns:
+        Dict with result and the NEXT item to ask about
+    
+    Examples:
+        - User says "Yes, I have it" → handle_evidence_response(has_document=True)
+        - User says "No, I don't have it" → handle_evidence_response(has_document=False)
+        - User says "Not now but I can get it" → handle_evidence_response(has_document=False, can_provide_later=True)
+    """
+    # Get the current item being discussed (first REQUIRED item)
+    current_item = evidence_hub.get_next_required_evidence()
+    
+    if not current_item:
+        return {
+            "status": "no_pending_items",
+            "message": "All evidence items have been addressed!",
+            "action": "PROCEED_TO_SUMMARY"
+        }
+    
+    # Determine status based on response
+    if has_document or can_provide_later:
+        # User has it or will get it later -> mark as pending (will provide)
+        evidence_hub.update_evidence_status(current_item.id, EvidenceStatus.PENDING)
+        new_status = "pending"
+    else:
+        # User doesn't have it and can't get it -> mark as not available
+        evidence_hub.update_evidence_status(current_item.id, EvidenceStatus.NOT_AVAILABLE)
+        new_status = "not_available"
+    
+    # Get the NEXT item to ask about
+    next_item = evidence_hub.get_next_required_evidence()
+    checklist_status = evidence_hub.get_checklist_status()
+    
+    return {
+        "status": "success",
+        "processed_item": current_item.description,
+        "marked_as": new_status,
+        "remaining_items": checklist_status["required"],
+        "next_item": {
+            "id": next_item.id,
+            "description": next_item.description,
+            "priority": next_item.priority.value
+        } if next_item else None,
+        "action": "ASK_NEXT" if next_item else "PROCEED_TO_SUMMARY"
     }
 
 
@@ -300,18 +358,19 @@ and guide the user through the intake process step by step.
 - `update_case_facts(field, value)` - Save information as you learn it
 - `get_case_facts()` - See what facts have been gathered
 - `get_evidence_checklist()` - See what evidence is needed/uploaded
-- `request_evidence_upload(type, description)` - Ask user for a document
-- `mark_evidence_pending(id)` - User will provide later
-- `mark_evidence_not_available(id)` - User doesn't have it
-- `check_intake_complete()` - **IMPORTANT**: Check if all evidence has been addressed and what to do next
+- `handle_evidence_response(has_document, can_provide_later)` - **USE THIS** to record user's response about evidence
+- `check_intake_complete()` - Check if all evidence has been addressed
 - `get_case_summary()` - Get complete case status
 
-### Research Tools:
-- `google_search` - Research OSHA regulations, legal info, comparable cases
+Advanced tools (usually not needed):
+- `mark_evidence_pending(id)` - Mark specific item by ID
+- `mark_evidence_not_available(id)` - Mark specific item by ID
+- `request_evidence_upload(type, description)` - Request specific document
 
-### Sub-Agents (use when needed):
-- `evidence_agent` - Analyze uploaded documents and images
-- `damages_agent` - Calculate settlement estimates (uses code execution for accurate math)
+### Sub-Agents (available when using orchestrator):
+Note: Sub-agents are only available with get_orchestrator_agent(), not root_agent.
+- `evidence_agent` - Analyze uploaded documents and images  
+- `damages_agent` - Calculate settlement estimates
 
 ## INTAKE FLOW (FOLLOW THIS STRICTLY):
 
@@ -333,21 +392,27 @@ Save facts as you learn them with `update_case_facts(field, value)`:
 - `medical_expenses`, `days_missed_work`, `lost_wages`
 
 ### Phase 4: Evidence Collection Loop
-**CRITICAL: Follow this loop for EACH evidence item:**
 
-1. Call `get_evidence_checklist()` to see next required item
-2. Ask user: "Do you have [description]?"
-3. Based on response:
-   - If YES and they upload → Use `evidence_agent` to analyze
-   - If "not right now" → `mark_evidence_pending(id)`  
-   - If "I don't have it" → `mark_evidence_not_available(id)`
-4. **AFTER EACH ITEM**: Call `check_intake_complete()`
-   - If `action: "CONTINUE"` → Go back to step 1, ask about `next_item`
-   - If `action: "WRAP_UP"` → **STOP collecting, move to Phase 5**
+**RULE: EVERY time user answers about evidence, you MUST call handle_evidence_response()**
 
-### Phase 5: Calculate Damages (only after WRAP_UP)
-- Use `damages_agent` with medical_expenses, lost_wages, injury_severity
-- It will calculate settlement estimate using code execution
+The loop:
+1. Get checklist: `get_evidence_checklist()` → shows next required item
+2. Ask: "Do you have [item]?"
+3. User answers → **IMMEDIATELY CALL** `handle_evidence_response()`:
+   - "Yes/I have it" → `handle_evidence_response(has_document=True)`
+   - "No/Don't have" → `handle_evidence_response(has_document=False)`
+   - "Can get later" → `handle_evidence_response(has_document=False, can_provide_later=True)`
+4. Check the result's `action`:
+   - "ASK_NEXT" → ask about `next_item`
+   - "PROCEED_TO_SUMMARY" → done, go to Phase 5
+
+**⚠️ NEVER say "we'll get to that later" - ALWAYS call handle_evidence_response() NOW.**
+**⚠️ If user volunteers evidence info unprompted, still call handle_evidence_response().**
+
+### Phase 5: Summarize & Wrap Up
+- Call `get_case_summary()` to generate the final case summary
+- Present the summary to the user including all evidence status
+- If damages calculation is needed, it requires the orchestrator agent
 
 ### Phase 6: Final Summary & End
 - Call `get_case_summary()` to generate final summary
@@ -368,11 +433,15 @@ Save facts as you learn them with `update_case_facts(field, value)`:
 - If interrupted, stop immediately and listen
 - Summarize back to confirm understanding
 
-## Important:
-- Save information as you learn it using `update_case_facts()`
+## Important Rules:
+- Save facts as you learn them using `update_case_facts()`
 - Don't ask for evidence until you understand the basic situation
 - Be patient with emotional clients
-- Always check `check_intake_complete()` after addressing each evidence item
+
+## ⚠️ TOOL CALLING RULES (MUST FOLLOW):
+1. When user says YES/NO about evidence → call `handle_evidence_response()` IMMEDIATELY
+2. NEVER skip the tool call - don't just acknowledge, CALL THE TOOL
+3. After each tool call, ask about the `next_item` returned
 
 Remember: You're helping someone who's been hurt. Be warm, professional, and thorough."""
 
@@ -403,28 +472,30 @@ HUB_TOOLS = [
     request_evidence_upload,
     mark_evidence_pending,
     mark_evidence_not_available,
-    check_intake_complete,  # NEW: Determines when to stop
+    handle_evidence_response,  # EASY: handles current item automatically
+    check_intake_complete,
     get_case_summary,
 ]
 
 
 # Create the root agent for ADK (text chat)
+# NOTE: google_search cannot be mixed with custom function tools in Vertex AI
+# Removed google_search to avoid "Multiple tools are supported only when they are all search tools" error
 root_agent = Agent(
     name="lexie_root_agent",
     model=CHAT_MODEL,
     description="AI-powered legal intake assistant for workplace injury cases",
     instruction=LIVE_AGENT_INSTRUCTION,
-    tools=HUB_TOOLS + [google_search],
+    tools=HUB_TOOLS,  # No google_search - incompatible with function tools
 )
 
 # Create a separate agent for live streaming (voice)
-# Note: Live agent uses the same tools but with voice-capable model
 live_agent = Agent(
     name="lexie_live_agent",
     model=LIVE_MODEL,
     description="AI-powered legal intake assistant for workplace injury cases",
     instruction=LIVE_AGENT_INSTRUCTION,
-    tools=HUB_TOOLS + [google_search],
+    tools=HUB_TOOLS,  # No google_search - incompatible with function tools
 )
 
 
@@ -439,7 +510,7 @@ def get_orchestrator_agent():
         description="AI-powered legal intake assistant that orchestrates evidence and damages agents",
         instruction=LIVE_AGENT_INSTRUCTION,
         tools=HUB_TOOLS + [
-            google_search,
+            # NOTE: google_search removed - incompatible with AgentTool
             AgentTool(agent=evidence_agent),
             AgentTool(agent=damages_agent),
         ],

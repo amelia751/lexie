@@ -1,0 +1,42 @@
+TITAN CONSTRUCTION CO.
+INCIDENT/ACCIDENT REPORT
+
+Date of Incident: January 15, 2025
+Time: 10:45 AM
+Location: 456 Industrial Avenue, Building Site C
+
+Employee Name: Maria Santos
+Employee ID: TC-2847
+Position: Construction Worker
+Department: Structural Assembly
+
+DESCRIPTION OF INCIDENT:
+Employee Maria Santos was working on scaffolding at approximately 15 feet height 
+when the scaffolding support bracket gave way. The employee fell to the ground 
+level, landing on concrete surface.
+
+INJURIES SUSTAINED:
+- Fractured right arm (compound fracture)
+- Bruising and contusions on right side
+- Minor head laceration
+
+WITNESSES:
+1. John Martinez - Foreman (present at scene)
+2. Robert Chen - Safety Coordinator (arrived within 2 minutes)
+
+IMMEDIATE ACTIONS TAKEN:
+- 911 called at 10:47 AM
+- First aid administered
+- Area secured and cordoned off
+- Employee transported to Riverside General Hospital
+
+EQUIPMENT INVOLVED:
+- Baker scaffolding unit, Model BS-150
+- Support bracket Serial #: SC-2019-4472
+
+PRELIMINARY CAUSE:
+Scaffolding support bracket failure. Equipment inspection records indicate 
+bracket was last inspected 3 months prior with no issues noted.
+
+Report Filed By: John Martinez, Site Foreman
+Date: January 15, 2025

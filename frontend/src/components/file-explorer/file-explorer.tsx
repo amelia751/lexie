@@ -1,60 +1,61 @@
 'use client';
 
 import { type Evidence } from '@/lib/mock-data';
-import { FileSearch, Upload } from 'lucide-react';
+import { File, Upload, Search, Loader2 } from 'lucide-react';
 import { useEvidence } from '@/contexts/evidence-context';
-import { useRef } from 'react';
+import { useState } from 'react';
+import UploadDialog from './upload-dialog';
 
 interface FileExplorerProps {
   onFileSelect?: (evidence: Evidence) => void;
   selectedFileId?: string;
 }
 
-const getFileIcon = (type: Evidence['type']) => {
-  return <FileSearch className="w-3.5 h-3.5 text-gray-600" />;
+interface UploadedFile {
+  file: File;
+  id: string;
+  status: 'pending' | 'uploading' | 'success' | 'error';
+  progress: number;
+  error?: string;
+}
+
+const getFileIcon = (type: Evidence['type'], status?: string) => {
+  if (status === 'processing') {
+    return <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />;
+  }
+  return <File className="h-4 w-4 text-muted-foreground" />;
 };
 
 export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplorerProps) {
   const { evidence, addEvidence } = useEvidence();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
   const handleUploadClick = () => {
-    fileInputRef.current?.click();
+    setUploadDialogOpen(true);
   };
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handleUploadComplete = (uploadedFiles: UploadedFile[]) => {
+    uploadedFiles.forEach(uploadedFile => {
+      const newEvidence: Evidence = {
+        id: `evidence-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: uploadedFile.file.name,
+        type: getEvidenceType(uploadedFile.file.name),
+        uploadedAt: new Date().toLocaleString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        size: formatFileSize(uploadedFile.file.size),
+        status: 'processed',
+      };
 
-    // Create a new Evidence entry
-    const newEvidence: Evidence = {
-      id: `evidence-${Date.now()}`,
-      name: file.name,
-      type: getEvidenceType(file.name),
-      uploadedAt: new Date().toLocaleString('en-US', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      size: formatFileSize(file.size),
-      status: 'processing',
-    };
+      addEvidence(newEvidence);
+    });
 
-    // Add to evidence list
-    addEvidence(newEvidence);
-
-    // Simulate processing
-    setTimeout(() => {
-      // In a real app, you'd update this after actual processing
-      addEvidence({ ...newEvidence, status: 'processed' });
-    }, 2000);
-
-    // Reset
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setUploadDialogOpen(false);
   };
 
   const getEvidenceType = (filename: string): Evidence['type'] => {
@@ -85,73 +86,83 @@ export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplo
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   };
 
+  const filteredEvidence = evidence.filter(item =>
+    !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200">
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={handleFileSelect}
-        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.zip"
-      />
-
       {/* Header */}
-      <div className="flex-shrink-0 px-4 py-2.5 border-b border-gray-200">
-        <h2 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Evidence</h2>
-        <p className="text-[10px] text-gray-500 mt-0.5">
-          {evidence.length} files
-        </p>
-      </div>
-
-      {/* File List */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        <div className="p-2 space-y-px">
-          {evidence.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => onFileSelect?.(item)}
-              className={`w-full text-left px-3 py-2 border rounded-md transition-colors ${
-                selectedFileId === item.id
-                  ? 'bg-gray-50 border-gray-900'
-                  : 'bg-white border-transparent hover:border-gray-200'
-              }`}
-            >
-              <div className="flex items-start gap-2">
-                <div className="flex-shrink-0 mt-0.5">
-                  {getFileIcon(item.type)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-gray-900 truncate">
-                    {item.name}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <span className="text-[10px] text-gray-500">{item.size}</span>
-                    <span className="text-[10px] text-gray-400">•</span>
-                    <span className="text-[10px] text-gray-500">{item.uploadedAt}</span>
-                  </div>
-                  {item.status === 'processing' && (
-                    <div className="mt-1">
-                      <span className="text-[10px] text-blue-600 animate-pulse">Processing...</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </button>
-          ))}
+      <div className="flex-shrink-0 px-2 py-1.5 border-b border-gray-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xs font-medium text-gray-900">Evidence</h2>
+            <p className="text-[10px] text-muted-foreground">
+              {evidence.length} files
+            </p>
+          </div>
+          <button
+            onClick={handleUploadClick}
+            className="h-6 w-6 p-0 flex items-center justify-center hover:bg-gray-100 rounded transition-colors"
+          >
+            <Upload className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex-shrink-0 px-4 py-2.5 border-t border-gray-200">
-        <button
-          onClick={handleUploadClick}
-          className="w-full px-3 py-1.5 text-xs font-medium text-white bg-black border border-black rounded-md hover:bg-gray-900 transition-colors flex items-center justify-center gap-2"
-        >
-          <Upload className="w-3 h-3" />
-          Upload
-        </button>
+      {/* Search Bar */}
+      <div className="px-2 py-1.5 border-b border-gray-200">
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            placeholder="Search files..."
+            className="w-full pl-7 pr-2 h-7 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
       </div>
+
+      {/* File List */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="py-1">
+          {filteredEvidence.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => onFileSelect?.(item)}
+              className={`flex items-center py-1 px-3 cursor-pointer text-sm transition-colors ${
+                selectedFileId === item.id
+                  ? 'bg-gray-100'
+                  : 'hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex-shrink-0 mr-2">
+                {getFileIcon(item.type, item.status)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="truncate text-xs font-medium text-gray-900">
+                  {item.name}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {item.size} • {item.uploadedAt}
+                </div>
+              </div>
+            </div>
+          ))}
+          {filteredEvidence.length === 0 && (
+            <div className="p-4 text-center text-muted-foreground text-xs">
+              {searchQuery ? 'No files found matching your search.' : 'No files uploaded yet.'}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Upload Dialog */}
+      <UploadDialog
+        open={uploadDialogOpen}
+        onOpenChange={setUploadDialogOpen}
+        onUpload={handleUploadComplete}
+      />
     </div>
   );
 }

@@ -249,9 +249,10 @@ class EvidenceHub:
         ]
     
     def get_next_required_evidence(self) -> Optional[EvidenceItem]:
-        """Get the next required evidence item (by priority)."""
-        pending = self.get_pending_evidence()
-        if not pending:
+        """Get the next REQUIRED evidence item (items not yet addressed)."""
+        # Only get items that are still REQUIRED (not yet addressed by user)
+        required = [item for item in self.checklist if item.status == EvidenceStatus.REQUIRED]
+        if not required:
             return None
         
         # Sort by priority
@@ -260,8 +261,8 @@ class EvidenceHub:
             EvidencePriority.IMPORTANT: 1,
             EvidencePriority.HELPFUL: 2
         }
-        pending.sort(key=lambda x: priority_order.get(x.priority, 99))
-        return pending[0]
+        required.sort(key=lambda x: priority_order.get(x.priority, 99))
+        return required[0]
     
     def get_uploaded_evidence(self) -> list[EvidenceItem]:
         """Get evidence items that have been uploaded/analyzed."""

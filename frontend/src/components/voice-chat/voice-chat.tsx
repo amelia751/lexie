@@ -12,6 +12,7 @@ export default function VoiceChat() {
   const [documentResponses, setDocumentResponses] = useState<Record<number, 'uploaded' | 'dont-have' | 'later' | null>>({});
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [dragOver, setDragOver] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
@@ -72,6 +73,7 @@ export default function VoiceChat() {
       setDocumentResponses({});
       setCurrentMessageIndex(0);
       setIsPaused(false);
+      setDragOver(null);
     }
   };
 
@@ -93,6 +95,42 @@ export default function VoiceChat() {
 
   const handleUploadClick = (messageIndex: number) => {
     fileInputRefs.current[messageIndex]?.click();
+  };
+
+  const handleDragEnter = (messageIndex: number, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(messageIndex);
+  };
+
+  const handleDragLeave = (messageIndex: number, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (messageIndex: number, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(null);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      // Check if file type is acceptable
+      const acceptableTypes = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.zip'];
+      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+
+      if (acceptableTypes.includes(fileExtension)) {
+        setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'uploaded' }));
+        // In real app, would upload file here
+      }
+    }
   };
 
   return (
@@ -157,16 +195,24 @@ export default function VoiceChat() {
                           />
 
                           {/* Upload Zone */}
-                          <button
+                          <div
                             onClick={() => handleUploadClick(index)}
-                            className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                            onDragEnter={(e) => handleDragEnter(index, e)}
+                            onDragLeave={(e) => handleDragLeave(index, e)}
+                            onDragOver={handleDragOver}
+                            onDrop={(e) => handleDrop(index, e)}
+                            className={`w-full border-2 border-dashed rounded-lg p-4 cursor-pointer transition-colors ${
+                              dragOver === index
+                                ? 'border-gray-900 bg-gray-100'
+                                : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                            }`}
                           >
-                            <div className="flex flex-col items-center gap-1.5">
+                            <div className="flex flex-col items-center gap-1.5 pointer-events-none">
                               <Upload className="w-4 h-4 text-gray-400" />
                               <div className="text-xs font-medium text-gray-700">Upload Document</div>
                               <div className="text-[10px] text-gray-500">Click to browse or drag & drop</div>
                             </div>
-                          </button>
+                          </div>
 
                           {/* Action Buttons */}
                           <div className="flex gap-2">
