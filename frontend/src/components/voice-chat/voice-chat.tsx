@@ -159,7 +159,7 @@ export default function VoiceChat() {
                     className={`max-w-[80%] px-3 py-2 border rounded-lg ${
                       message.role === 'agent'
                         ? 'bg-white border-gray-300'
-                        : 'bg-black border-black text-white'
+                        : 'bg-true-turquoise border-true-turquoise text-white'
                     }`}
                   >
                     <p className={`text-xs leading-relaxed ${message.role === 'agent' ? 'text-gray-900' : 'text-white'}`}>
@@ -281,15 +281,15 @@ export default function VoiceChat() {
             disabled={isSimulating}
             className={`relative w-12 h-12 border-2 rounded-lg flex items-center justify-center transition-all ${
               isListening
-                ? 'bg-black border-black'
+                ? 'bg-true-turquoise border-true-turquoise'
                 : 'bg-white border-gray-300 hover:border-gray-400'
             } ${isSimulating ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {/* Pulse rings when listening */}
             {isListening && (
               <>
-                <div className="absolute inset-0 border-2 border-black rounded-lg animate-pulse-ring"></div>
-                <div className="absolute inset-0 border-2 border-black rounded-lg animate-pulse-ring" style={{ animationDelay: '1s' }}></div>
+                <div className="absolute inset-0 border-2 border-true-turquoise rounded-lg animate-pulse-ring"></div>
+                <div className="absolute inset-0 border-2 border-true-turquoise rounded-lg animate-pulse-ring" style={{ animationDelay: '1s' }}></div>
               </>
             )}
 
@@ -297,7 +297,7 @@ export default function VoiceChat() {
             {isListening ? (
               <MicOff className="w-5 h-5 text-white relative z-10" />
             ) : (
-              <Mic className="w-5 h-5 text-gray-900 relative z-10" />
+              <Mic className="w-5 h-5 text-offblack relative z-10" />
             )}
           </button>
 
@@ -307,7 +307,7 @@ export default function VoiceChat() {
               {[...Array(5)].map((_, i) => (
                 <div
                   key={i}
-                  className="w-1 bg-black animate-equalizer"
+                  className="w-1 bg-true-turquoise animate-equalizer"
                   style={{
                     animationDelay: `${i * 0.1}s`,
                   }}

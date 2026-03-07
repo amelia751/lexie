@@ -220,7 +220,7 @@ export default function UploadDialog({ open, onOpenChange, onUpload }: UploadDia
                     {uploadedFile.status === 'uploading' && (
                       <div className="w-full bg-gray-200 rounded-full h-1.5">
                         <div
-                          className="bg-gray-900 h-1.5 rounded-full transition-all duration-300"
+                          className="bg-true-turquoise h-1.5 rounded-full transition-all duration-300"
                           style={{ width: `${uploadedFile.progress}%` }}
                         />
                       </div>
@@ -264,7 +264,7 @@ export default function UploadDialog({ open, onOpenChange, onUpload }: UploadDia
           <button
             onClick={handleUploadFiles}
             disabled={!hasPendingFiles || hasUploadingFiles}
-            className="px-4 py-2 text-sm font-medium text-white bg-black border border-black rounded-md hover:bg-gray-900 transition-colors disabled:bg-gray-300 disabled:text-gray-500 disabled:border-gray-300"
+            className="px-4 py-2 text-sm font-medium text-white bg-true-turquoise border border-true-turquoise rounded-md hover:bg-peacock transition-colors disabled:bg-gray-300 disabled:text-gray-500 disabled:border-gray-300"
           >
             {hasUploadingFiles ? 'Uploading...' : allUploadsComplete && hasSuccessfulUploads ? 'Done' : 'Save'}
           </button>

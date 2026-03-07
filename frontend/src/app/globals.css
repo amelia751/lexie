@@ -34,6 +34,16 @@
   --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-geist-mono);
 
+  /* Custom Brand Colors */
+  --color-offblack: var(--color-offblack);
+  --color-paper-white: var(--color-paper-white);
+  --color-true-turquoise: var(--color-true-turquoise);
+  --color-telly-blue: var(--color-telly-blue);
+  --color-peacock: var(--color-peacock);
+  --color-aquamarine: var(--color-aquamarine);
+  --color-pale-blue: var(--color-pale-blue);
+  --color-sky: var(--color-sky);
+
   --color-border: var(--border);
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -76,38 +86,51 @@
 :root {
   --radius: 0.625rem;
 
-  /* Pure grayscale professional theme */
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Core Brand Colors */
+  --color-offblack: #0f1d1d;
+  --color-paper-white: #fdfaf4;
+  --color-true-turquoise: #2d9d9b;
+
+  /* Secondary Colors */
+  --color-telly-blue: #1d4544;
+  --color-peacock: #205d5b;
+  --color-aquamarine: #4db3b1;
+  --color-pale-blue: #8fc9c8;
+  --color-sky: #d2e8e8;
+
+  /* Theme colors with Province palette */
+  --background: #fdfaf4; /* paper-white */
+  --foreground: #0f1d1d; /* off-black */
+  --card: #ffffff;
+  --card-foreground: #0f1d1d;
+  --popover: #ffffff;
+  --popover-foreground: #0f1d1d;
+  --primary: #2d9d9b; /* true-turquoise */
+  --primary-foreground: #fdfaf4;
+  --secondary: #d2e8e8; /* sky */
+  --secondary-foreground: #0f1d1d;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --accent: #4db3b1; /* aquamarine */
+  --accent-foreground: #0f1d1d;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #2d9d9b;
+  --chart-1: #2d9d9b;
+  --chart-2: #4db3b1;
+  --chart-3: #8fc9c8;
+  --chart-4: #d2e8e8;
+  --chart-5: #1d4544;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f1d1d;
+  --sidebar-primary: #2d9d9b;
+  --sidebar-primary-foreground: #fdfaf4;
+  --sidebar-accent: #f5f5f5;
+  --sidebar-accent-foreground: #0f1d1d;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: #2d9d9b;
 }
 
 .dark {
