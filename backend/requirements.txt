@@ -13,6 +13,9 @@ google-auth==2.30.0
 # Audio processing
 numpy==1.26.4
 
+# Data processing (for hybrid JSON + Tabular model)
+pandas>=2.0.0
+
 # Utilities
 python-dotenv==1.0.1
 pydantic==2.7.4

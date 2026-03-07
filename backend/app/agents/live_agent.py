@@ -218,6 +218,72 @@ def initialize_case(case_type: str, session_id: str = None) -> dict:
     }
 
 
+def check_intake_complete() -> dict:
+    """
+    Check if the intake process is complete and determine next action.
+    
+    Intake is COMPLETE when ALL evidence items have been addressed:
+    - UPLOADED or ANALYZED (user provided it)
+    - PENDING (user will provide later)
+    - NOT_AVAILABLE (user confirmed they don't have it)
+    
+    Call this after addressing each evidence item to know when to stop.
+    
+    Returns:
+        Dict with:
+        - complete: bool - True if intake is done
+        - action: "CONTINUE" or "WRAP_UP"
+        - next_item: Next evidence item to ask about (if not complete)
+        - summary: Stats on evidence collection
+    """
+    status = evidence_hub.get_checklist_status()
+    
+    # Items still in REQUIRED state (not yet addressed)
+    still_required = status["required"]
+    
+    # Items that have been addressed
+    collected = status["uploaded"] + status["analyzed"]
+    pending = status["pending"]
+    not_available = status["not_available"]
+    addressed = collected + pending + not_available
+    
+    if still_required == 0:
+        # All items have been addressed - intake is complete!
+        return {
+            "complete": True,
+            "action": "WRAP_UP",
+            "message": "All evidence items have been addressed. Proceed to damages calculation and summary.",
+            "summary": {
+                "collected": collected,
+                "pending_later": pending,
+                "not_available": not_available,
+                "total_addressed": addressed
+            },
+            "next_steps": [
+                "Calculate damages using damages_agent",
+                "Generate case summary using get_case_summary()",
+                "Review summary with user",
+                "End intake conversation"
+            ]
+        }
+    else:
+        # Still have items to ask about
+        next_item = evidence_hub.get_next_required_evidence()
+        return {
+            "complete": False,
+            "action": "CONTINUE",
+            "remaining_items": still_required,
+            "next_item": next_item.to_dict() if next_item else None,
+            "message": f"Still need to address {still_required} evidence item(s). Ask about: {next_item.description if next_item else 'next item'}",
+            "summary": {
+                "collected": collected,
+                "pending_later": pending,
+                "not_available": not_available,
+                "total_addressed": addressed
+            }
+        }
+
+
 # ==================== AGENT INSTRUCTIONS ====================
 
 LIVE_AGENT_INSTRUCTION = """You are Lexie, an AI-powered legal intake assistant for workplace injury cases.
@@ -237,6 +303,7 @@ and guide the user through the intake process step by step.
 - `request_evidence_upload(type, description)` - Ask user for a document
 - `mark_evidence_pending(id)` - User will provide later
 - `mark_evidence_not_available(id)` - User doesn't have it
+- `check_intake_complete()` - **IMPORTANT**: Check if all evidence has been addressed and what to do next
 - `get_case_summary()` - Get complete case status
 
 ### Research Tools:
@@ -246,42 +313,52 @@ and guide the user through the intake process step by step.
 - `evidence_agent` - Analyze uploaded documents and images
 - `damages_agent` - Calculate settlement estimates (uses code execution for accurate math)
 
-## Conversation Flow:
+## INTAKE FLOW (FOLLOW THIS STRICTLY):
 
-### Phase 1: Understanding the Situation
+### Phase 1: Understand the Situation
 1. Greet warmly, ask how they're doing
 2. Ask what happened (incident description)
 3. Ask when and where it happened
 4. Determine case type from description
 
 ### Phase 2: Initialize Case
-Call `initialize_case(case_type)` to set up evidence checklist.
-This creates a list of required documents based on case type.
+Call `initialize_case(case_type)` to create the evidence checklist.
 
-### Phase 3: Gather Information
-For each fact learned, call `update_case_facts(field, value)`:
+### Phase 3: Gather Key Facts
+Save facts as you learn them with `update_case_facts(field, value)`:
 - `plaintiff_name`, `plaintiff_age`, `plaintiff_occupation`
-- `employer_name`, `employer_type`
+- `employer_name`
 - `incident_date`, `incident_location`, `incident_description`
 - `injuries` (list), `injury_severity` (minor/moderate/serious/severe)
 - `medical_expenses`, `days_missed_work`, `lost_wages`
-- `witnesses` (list), `safety_violations` (list)
 
-### Phase 4: Gather Evidence
-1. Call `get_evidence_checklist()` to see what's needed
-2. Ask for ONE document at a time using `request_evidence_upload()`
-3. If user doesn't have it now: `mark_evidence_pending(id)`
-4. If user doesn't have it at all: `mark_evidence_not_available(id)`
-5. When user uploads: use `evidence_agent` to analyze it
+### Phase 4: Evidence Collection Loop
+**CRITICAL: Follow this loop for EACH evidence item:**
 
-### Phase 5: Calculate Damages
-Once you have medical expenses, lost wages, injury severity:
-- Use `damages_agent` to calculate settlement estimate
-- It uses Python code execution for accurate math
+1. Call `get_evidence_checklist()` to see next required item
+2. Ask user: "Do you have [description]?"
+3. Based on response:
+   - If YES and they upload → Use `evidence_agent` to analyze
+   - If "not right now" → `mark_evidence_pending(id)`  
+   - If "I don't have it" → `mark_evidence_not_available(id)`
+4. **AFTER EACH ITEM**: Call `check_intake_complete()`
+   - If `action: "CONTINUE"` → Go back to step 1, ask about `next_item`
+   - If `action: "WRAP_UP"` → **STOP collecting, move to Phase 5**
 
-### Phase 6: Summary
-- Use `get_case_summary()` to generate final summary
-- Review with user for accuracy
+### Phase 5: Calculate Damages (only after WRAP_UP)
+- Use `damages_agent` with medical_expenses, lost_wages, injury_severity
+- It will calculate settlement estimate using code execution
+
+### Phase 6: Final Summary & End
+- Call `get_case_summary()` to generate final summary
+- Present to user: collected evidence, pending items, damage estimate
+- Ask if anything needs correction
+- Thank them and END the conversation
+
+## STOP CONDITIONS:
+✅ Stop collecting evidence when `check_intake_complete()` returns `action: "WRAP_UP"`
+✅ This means all items are either: collected, marked pending, or marked not available
+✅ Do NOT keep asking after WRAP_UP - proceed to damages and summary
 
 ## Conversation Guidelines:
 - Ask ONE question at a time
@@ -295,7 +372,7 @@ Once you have medical expenses, lost wages, injury severity:
 - Save information as you learn it using `update_case_facts()`
 - Don't ask for evidence until you understand the basic situation
 - Be patient with emotional clients
-- The user can interrupt you at any time
+- Always check `check_intake_complete()` after addressing each evidence item
 
 Remember: You're helping someone who's been hurt. Be warm, professional, and thorough."""
 
@@ -326,6 +403,7 @@ HUB_TOOLS = [
     request_evidence_upload,
     mark_evidence_pending,
     mark_evidence_not_available,
+    check_intake_complete,  # NEW: Determines when to stop
     get_case_summary,
 ]
 

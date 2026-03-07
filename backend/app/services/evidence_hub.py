@@ -315,17 +315,31 @@ class EvidenceHub:
         if not self.checklist:
             return "initial_intake"
         
-        pending = self.get_pending_evidence()
-        critical_pending = [i for i in pending if i.priority == EvidencePriority.CRITICAL]
+        # Check how many items are still REQUIRED (not yet addressed)
+        required_items = [i for i in self.checklist if i.status == EvidenceStatus.REQUIRED]
+        pending_items = [i for i in self.checklist if i.status == EvidenceStatus.PENDING]
+        critical_required = [i for i in required_items if i.priority == EvidencePriority.CRITICAL]
         
-        if critical_pending:
-            return "missing_critical_evidence"
-        elif pending:
-            return "gathering_evidence"
+        if required_items:
+            # Still have items that haven't been addressed
+            if critical_required:
+                return "missing_critical_evidence"
+            else:
+                return "gathering_evidence"
         elif self.facts.total_damages_estimate:
+            # All items addressed AND damages calculated
             return "ready_for_review"
+        elif pending_items or not required_items:
+            # All items addressed (uploaded, pending, or not_available)
+            # but damages not yet calculated
+            return "intake_complete"
         else:
             return "calculating_damages"
+    
+    def is_intake_complete(self) -> bool:
+        """Check if all evidence items have been addressed."""
+        required_items = [i for i in self.checklist if i.status == EvidenceStatus.REQUIRED]
+        return len(required_items) == 0 and len(self.checklist) > 0
     
     def get_checklist_status(self) -> dict:
         """Get a simple status of the evidence checklist."""

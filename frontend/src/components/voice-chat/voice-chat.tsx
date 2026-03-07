@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { mockConversationWithDocuments, type VoiceMessage } from '@/lib/mock-data';
 import { Mic, MicOff, Phone, Upload, X, Clock } from 'lucide-react';
 
@@ -10,6 +10,8 @@ export default function VoiceChat() {
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
   const [documentResponses, setDocumentResponses] = useState<Record<number, 'uploaded' | 'dont-have' | 'later' | null>>({});
+  const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
@@ -21,18 +23,44 @@ export default function VoiceChat() {
     scrollToBottom();
   }, [messages]);
 
-  const simulateConversation = async () => {
+  const playNextMessage = useCallback(async (startIndex: number) => {
+    for (let i = startIndex; i < mockConversationWithDocuments.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setMessages(prev => [...prev, mockConversationWithDocuments[i]]);
+      setCurrentMessageIndex(i);
+
+      // If this message has a document request, pause and wait for user interaction
+      if (mockConversationWithDocuments[i].documentRequest) {
+        setIsPaused(true);
+        return; // Stop here and wait for user response
+      }
+    }
+
+    // Finished all messages
+    setIsSimulating(false);
+    setIsListening(false);
+  }, []);
+
+  // Resume conversation after user responds to document request
+  useEffect(() => {
+    if (isPaused && documentResponses[currentMessageIndex] !== undefined && documentResponses[currentMessageIndex] !== null) {
+      setIsPaused(false);
+      // Continue with next message after a short delay
+      setTimeout(() => {
+        playNextMessage(currentMessageIndex + 1);
+      }, 1000);
+    }
+  }, [documentResponses, currentMessageIndex, isPaused, playNextMessage]);
+
+  const simulateConversation = () => {
     setIsSimulating(true);
     setMessages([]);
     setIsListening(true);
+    setCurrentMessageIndex(0);
+    setIsPaused(false);
 
-    for (let i = 0; i < mockConversationWithDocuments.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setMessages(prev => [...prev, mockConversationWithDocuments[i]]);
-    }
-
-    setIsSimulating(false);
-    setIsListening(false);
+    // Start playing messages
+    playNextMessage(0);
   };
 
   const handleToggleListening = () => {
@@ -42,6 +70,8 @@ export default function VoiceChat() {
       setIsListening(false);
       setMessages([]);
       setDocumentResponses({});
+      setCurrentMessageIndex(0);
+      setIsPaused(false);
     }
   };
 
@@ -67,16 +97,6 @@ export default function VoiceChat() {
 
   return (
     <div className="flex flex-col h-full bg-white border-l border-gray-200">
-      {/* Header */}
-      <div className="flex-shrink-0 px-4 py-2.5 border-b border-gray-200">
-        <div>
-          <h2 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Voice Intake</h2>
-          <p className="text-[10px] text-gray-500 mt-0.5">
-            {isListening ? 'Active' : 'Ready'}
-          </p>
-        </div>
-      </div>
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
         {messages.length === 0 ? (
@@ -104,12 +124,6 @@ export default function VoiceChat() {
                         : 'bg-black border-black text-white'
                     }`}
                   >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                        {message.role === 'agent' ? 'Agent' : 'Client'}
-                      </span>
-                      <span className="text-[10px] text-gray-400">{message.timestamp}</span>
-                    </div>
                     <p className={`text-xs leading-relaxed ${message.role === 'agent' ? 'text-gray-900' : 'text-white'}`}>
                       {message.content}
                     </p>
@@ -122,15 +136,10 @@ export default function VoiceChat() {
                     <div className="w-full max-w-[85%] border border-gray-200 rounded-lg bg-white overflow-hidden">
                       {/* Header */}
                       <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
-                        <div className="flex items-center justify-between">
-                          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                            {message.documentRequest.priority === 'critical' ? 'Required' : message.documentRequest.priority === 'important' ? 'Important' : 'Helpful'}
-                          </div>
-                          <div className="text-[10px] text-gray-400">
-                            {message.documentRequest.type}
-                          </div>
+                        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                          {message.documentRequest.priority === 'critical' ? 'Required' : message.documentRequest.priority === 'important' ? 'Important' : 'Helpful'}
                         </div>
-                        <div className="text-xs text-gray-700 mt-1">
+                        <div className="text-xs text-gray-700">
                           {message.documentRequest.description}
                         </div>
                       </div>
@@ -179,29 +188,29 @@ export default function VoiceChat() {
                         </div>
                       ) : (
                         <div className="p-3">
-                          <div className={`flex items-center gap-2 px-3 py-2 rounded-md ${
+                          <div className={`flex items-center gap-2 px-3 py-2 border rounded-md ${
                             documentResponses[index] === 'uploaded'
-                              ? 'bg-green-50 text-green-700'
+                              ? 'bg-emerald-50 border-emerald-700'
                               : documentResponses[index] === 'dont-have'
-                              ? 'bg-gray-100 text-gray-600'
-                              : 'bg-blue-50 text-blue-700'
+                              ? 'bg-gray-50 border-gray-300'
+                              : 'bg-amber-50 border-amber-700'
                           }`}>
                             {documentResponses[index] === 'uploaded' && (
                               <>
-                                <Upload className="w-3.5 h-3.5" />
-                                <span className="text-xs font-medium">Document uploaded</span>
+                                <Upload className="w-3.5 h-3.5 text-emerald-700" />
+                                <span className="text-xs text-emerald-700">Document uploaded</span>
                               </>
                             )}
                             {documentResponses[index] === 'dont-have' && (
                               <>
-                                <X className="w-3.5 h-3.5" />
-                                <span className="text-xs font-medium">Marked as not available</span>
+                                <X className="w-3.5 h-3.5 text-gray-600" />
+                                <span className="text-xs text-gray-600">Marked as not available</span>
                               </>
                             )}
                             {documentResponses[index] === 'later' && (
                               <>
-                                <Clock className="w-3.5 h-3.5" />
-                                <span className="text-xs font-medium">Will provide later</span>
+                                <Clock className="w-3.5 h-3.5 text-amber-700" />
+                                <span className="text-xs text-amber-700">Will provide later</span>
                               </>
                             )}
                           </div>
