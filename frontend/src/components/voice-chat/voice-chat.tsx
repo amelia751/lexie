@@ -55,18 +55,37 @@ export default function VoiceChat() {
 
   const simulateConversation = () => {
     setIsSimulating(true);
-    setMessages([]);
     setIsListening(true);
-    setCurrentMessageIndex(0);
     setIsPaused(false);
 
-    // Start playing messages
+    // Start playing messages from the beginning
+    setMessages([]);
+    setCurrentMessageIndex(0);
+    setDocumentResponses({});
     playNextMessage(0);
+  };
+
+  const resumeConversation = () => {
+    setIsSimulating(true);
+    setIsListening(true);
+    setIsPaused(false);
+
+    // Continue from where we left off
+    playNextMessage(currentMessageIndex + 1);
   };
 
   const handleToggleListening = () => {
     if (!isListening && !isSimulating) {
-      simulateConversation();
+      // Check if there are existing messages and if the last one is a session end
+      const hasSessionEnd = messages.length > 0 && messages[messages.length - 1].content === '--- Session ended ---';
+
+      if (hasSessionEnd && currentMessageIndex < mockConversationWithDocuments.length - 1) {
+        // Resume from where we left off
+        resumeConversation();
+      } else {
+        // Start fresh conversation
+        simulateConversation();
+      }
     } else {
       // Stop conversation but keep messages
       setIsListening(false);
@@ -159,9 +178,7 @@ export default function VoiceChat() {
                 {/* Message Bubble */}
                 {message.content === '--- Session ended ---' ? (
                   <div className="flex justify-center my-4">
-                    <div className="px-4 py-1.5 rounded-full bg-gray-100 border border-gray-200">
-                      <p className="text-xs text-gray-500 font-medium">{message.content}</p>
-                    </div>
+                    <p className="text-xs text-gray-400 font-medium">{message.content}</p>
                   </div>
                 ) : (
                   <div
