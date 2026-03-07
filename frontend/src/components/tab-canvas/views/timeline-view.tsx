@@ -147,7 +147,13 @@ export default function TimelineView() {
   };
 
   const getCategoryColor = (category: string) => {
-    return 'border-gray-300 text-gray-600';
+    switch(category) {
+      case 'incident': return 'border-true-turquoise text-true-turquoise bg-sky/10';
+      case 'medical': return 'border-aquamarine text-peacock bg-sky/10';
+      case 'legal': return 'border-peacock text-peacock bg-sky/10';
+      case 'insurance': return 'border-pale-blue text-peacock bg-sky/10';
+      default: return 'border-gray-300 text-gray-600';
+    }
   };
 
   return (
@@ -155,7 +161,7 @@ export default function TimelineView() {
       <div className="max-w-5xl mx-auto p-8 space-y-6">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4">
-          <h1 className="text-lg font-semibold text-gray-900">Case Timeline</h1>
+          <h1 className="text-lg font-semibold text-true-turquoise">Case Timeline</h1>
           <p className="text-xs text-gray-500 mt-1">Chronological sequence of events</p>
         </div>
 
@@ -170,7 +176,7 @@ export default function TimelineView() {
                   onClick={() => setSelectedCategory(cat)}
                   className={`px-2 py-1 text-[10px] font-medium border rounded-md transition-colors uppercase ${
                     selectedCategory === cat
-                      ? 'bg-black text-white border-black'
+                      ? 'bg-true-turquoise text-white border-true-turquoise'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
                   }`}
                 >

@@ -17,7 +17,7 @@ export default function CaseSummaryView() {
       <div className="max-w-5xl mx-auto p-8 space-y-6">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4">
-          <h1 className="text-lg font-semibold text-gray-900">{mockCaseSummary.caseId}</h1>
+          <h1 className="text-lg font-semibold text-true-turquoise">{mockCaseSummary.caseId}</h1>
           <p className="text-xs text-gray-500 mt-1">{mockCaseSummary.incidentType}</p>
         </div>
 
@@ -40,14 +40,14 @@ export default function CaseSummaryView() {
 
           <div className="border border-gray-200 rounded-lg p-4">
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Estimated Value</div>
-            <p className="text-sm font-semibold text-gray-900">{mockCaseSummary.estimatedValue}</p>
+            <p className="text-sm font-semibold text-true-turquoise">{mockCaseSummary.estimatedValue}</p>
           </div>
         </div>
 
         {/* Defendant & Insurance Info */}
         <div className="border border-gray-200 rounded-lg">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50 rounded-t-lg">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Defendant & Insurance</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Defendant & Insurance</h2>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 gap-4">
@@ -65,7 +65,7 @@ export default function CaseSummaryView() {
               </div>
               <div>
                 <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Policy Limits (BI/Accident)</div>
-                <p className="text-sm font-semibold text-gray-900">
+                <p className="text-sm font-semibold text-true-turquoise">
                   {formatCurrency(mockCaseSummary.defendant.policyLimits.bodilyInjury)} / {formatCurrency(mockCaseSummary.defendant.policyLimits.perAccident)}
                 </p>
               </div>
@@ -104,7 +104,7 @@ export default function CaseSummaryView() {
 
         {/* Case Narrative */}
         <div className="border border-gray-200 rounded-lg p-6">
-          <h2 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Case Narrative</h2>
+          <h2 className="text-sm font-semibold text-peacock mb-4 uppercase tracking-wide">Case Narrative</h2>
           <div className="prose prose-sm max-w-none">
             {mockCaseSummary.narrative.split('\n\n').map((paragraph, index) => (
               <p key={index} className="text-xs text-gray-700 leading-relaxed mb-3">

@@ -128,14 +128,14 @@ export default function MedicalSummaryView() {
         <div className="max-w-6xl mx-auto p-8 space-y-6">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4">
-          <h1 className="text-lg font-semibold text-gray-900">Medical Summary Report</h1>
+          <h1 className="text-lg font-semibold text-true-turquoise">Medical Summary Report</h1>
           <p className="text-xs text-gray-500 mt-1">Case PI-2024-001234 • Sarah Johnson • DOI: January 15, 2024</p>
         </div>
 
         {/* Medical Liens */}
         <div className="border border-gray-200 rounded-lg">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50 rounded-t-lg">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Medical Liens & Subrogation</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Medical Liens & Subrogation</h2>
           </div>
           <div className="p-4">
             {liens.healthInsurance && (
@@ -197,7 +197,7 @@ export default function MedicalSummaryView() {
         {/* Future Medical Expenses */}
         <div className="border border-gray-200 rounded-lg">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50 rounded-t-lg">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Future Medical Expenses</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Future Medical Expenses</h2>
           </div>
           <div className="p-4">
             <table className="min-w-full">
@@ -282,7 +282,7 @@ export default function MedicalSummaryView() {
         {/* Pre-existing Conditions */}
         <div className={`border rounded-lg ${preExisting.identified ? 'border-gray-900 bg-gray-100' : 'border-gray-200 bg-gray-50'}`}>
           <div className={`border-b px-4 py-3 rounded-t-lg ${preExisting.identified ? 'border-gray-900 bg-gray-200' : 'border-gray-200 bg-gray-100'}`}>
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Pre-existing Conditions Analysis</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Pre-existing Conditions Analysis</h2>
           </div>
           <div className="p-4">
             <div className="flex items-center gap-3 mb-3">
@@ -314,7 +314,7 @@ export default function MedicalSummaryView() {
         {/* Itemized Medical Bills */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Itemized Medical Billing</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Itemized Medical Billing</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -371,7 +371,7 @@ export default function MedicalSummaryView() {
         {/* Diagnoses */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Primary Diagnoses</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Primary Diagnoses</h2>
           </div>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -415,7 +415,7 @@ export default function MedicalSummaryView() {
         {/* Treatment Gaps */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Treatment Gap Analysis</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Treatment Gap Analysis</h2>
           </div>
           <div className="p-4 space-y-3">
             {treatmentGaps.map((gap) => (

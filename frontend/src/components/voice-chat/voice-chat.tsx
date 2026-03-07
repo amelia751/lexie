@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { mockConversationWithDocuments, type VoiceMessage } from '@/lib/mock-data';
-import { Mic, MicOff, Phone, Upload, X, Clock } from 'lucide-react';
+import { Mic, MicOff, PhoneForwarded, Upload, X, Clock } from 'lucide-react';
 
 export default function VoiceChat() {
   const [isListening, setIsListening] = useState(false);
@@ -163,12 +163,12 @@ export default function VoiceChat() {
       <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
-            <div className="w-12 h-12 border-2 border-gray-300 rounded-lg flex items-center justify-center mb-4">
-              <Phone className="w-6 h-6 text-gray-400" />
+            <div className="w-12 h-12 flex items-center justify-center mb-4">
+              <PhoneForwarded className="w-6 h-6 text-gray-400" />
             </div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">No Active Session</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Ready to Start</h3>
             <p className="text-xs text-gray-500 max-w-xs">
-              Start voice intake to begin conversation simulation
+              Click the microphone below to begin voice intake
             </p>
           </div>
         ) : (

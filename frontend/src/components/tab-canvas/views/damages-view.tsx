@@ -150,14 +150,14 @@ export default function DamagesView() {
         <div className="max-w-6xl mx-auto p-8 space-y-6">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4">
-          <h1 className="text-lg font-semibold text-gray-900">Damages Analysis</h1>
+          <h1 className="text-lg font-semibold text-true-turquoise">Damages Analysis</h1>
           <p className="text-xs text-gray-500 mt-1">Financial valuation and settlement analysis</p>
         </div>
 
         {/* Full Damages Breakdown */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Complete Damages Breakdown</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Complete Damages Breakdown</h2>
           </div>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -441,7 +441,7 @@ export default function DamagesView() {
         {/* Comparable Verdicts */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Comparable Verdicts & Settlements</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Comparable Verdicts & Settlements</h2>
           </div>
           <div className="p-4">
             <table className="min-w-full">
@@ -477,7 +477,7 @@ export default function DamagesView() {
         {/* Scenario Analysis */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Scenario Analysis</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Scenario Analysis</h2>
           </div>
           <div className="p-3">
             <div className="flex items-center gap-2 mb-3">
@@ -487,7 +487,7 @@ export default function DamagesView() {
                   onClick={() => setSelectedScenario('worst')}
                   className={`px-3 py-1 text-[10px] font-medium border rounded-md transition-colors uppercase ${
                     selectedScenario === 'worst'
-                      ? 'bg-black text-white border-black'
+                      ? 'bg-true-turquoise text-white border-true-turquoise'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
                   }`}
                 >
@@ -497,7 +497,7 @@ export default function DamagesView() {
                   onClick={() => setSelectedScenario('base')}
                   className={`px-3 py-1 text-[10px] font-medium border rounded-md transition-colors uppercase ${
                     selectedScenario === 'base'
-                      ? 'bg-black text-white border-black'
+                      ? 'bg-true-turquoise text-white border-true-turquoise'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
                   }`}
                 >
@@ -507,7 +507,7 @@ export default function DamagesView() {
                   onClick={() => setSelectedScenario('best')}
                   className={`px-3 py-1 text-[10px] font-medium border rounded-md transition-colors uppercase ${
                     selectedScenario === 'best'
-                      ? 'bg-black text-white border-black'
+                      ? 'bg-true-turquoise text-white border-true-turquoise'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
                   }`}
                 >
@@ -575,7 +575,7 @@ export default function DamagesView() {
         {/* Client Net Recovery Calculator */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Client Net Recovery Calculator</h2>
+            <h2 className="text-sm font-semibold text-peacock uppercase tracking-wide">Client Net Recovery Calculator</h2>
           </div>
           <div className="p-4 space-y-4">
             <div className="grid grid-cols-2 gap-4 pb-4 border-b border-gray-200">
@@ -630,7 +630,7 @@ export default function DamagesView() {
               </div>
               <div className="flex justify-between py-3 border border-gray-400 rounded-md bg-gray-50 px-3">
                 <span className="font-semibold text-gray-900">Client Net Recovery</span>
-                <span className="text-lg font-bold text-gray-900">{formatCurrency(clientNet)}</span>
+                <span className="text-lg font-bold text-true-turquoise">{formatCurrency(clientNet)}</span>
               </div>
             </div>
           </div>
