@@ -67,13 +67,18 @@ export default function VoiceChat() {
   const handleToggleListening = () => {
     if (!isListening && !isSimulating) {
       simulateConversation();
-    } else if (!isSimulating) {
+    } else {
+      // Stop conversation but keep messages
       setIsListening(false);
-      setMessages([]);
-      setDocumentResponses({});
-      setCurrentMessageIndex(0);
+      setIsSimulating(false);
       setIsPaused(false);
-      setDragOver(null);
+
+      // Add session end indicator
+      setMessages(prev => [...prev, {
+        role: 'agent' as const,
+        content: '--- Session ended ---',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      }]);
     }
   };
 
@@ -152,21 +157,29 @@ export default function VoiceChat() {
             {messages.map((message, index) => (
               <div key={index} className="space-y-2">
                 {/* Message Bubble */}
-                <div
-                  className={`flex ${message.role === 'agent' ? 'justify-start' : 'justify-end'}`}
-                >
-                  <div
-                    className={`max-w-[80%] px-3 py-2 border rounded-lg ${
-                      message.role === 'agent'
-                        ? 'bg-white border-gray-300'
-                        : 'bg-true-turquoise border-true-turquoise text-white'
-                    }`}
-                  >
-                    <p className={`text-xs leading-relaxed ${message.role === 'agent' ? 'text-gray-900' : 'text-white'}`}>
-                      {message.content}
-                    </p>
+                {message.content === '--- Session ended ---' ? (
+                  <div className="flex justify-center my-4">
+                    <div className="px-4 py-1.5 rounded-full bg-gray-100 border border-gray-200">
+                      <p className="text-xs text-gray-500 font-medium">{message.content}</p>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div
+                    className={`flex ${message.role === 'agent' ? 'justify-start' : 'justify-end'}`}
+                  >
+                    <div
+                      className={`max-w-[80%] px-3 py-2 border rounded-lg ${
+                        message.role === 'agent'
+                          ? 'bg-white border-gray-300'
+                          : 'bg-true-turquoise border-true-turquoise text-white'
+                      }`}
+                    >
+                      <p className={`text-xs leading-relaxed ${message.role === 'agent' ? 'text-gray-900' : 'text-white'}`}>
+                        {message.content}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Document Request Interactive Card */}
                 {message.documentRequest && (
@@ -278,12 +291,11 @@ export default function VoiceChat() {
           {/* Microphone Button */}
           <button
             onClick={handleToggleListening}
-            disabled={isSimulating}
             className={`relative w-12 h-12 border-2 rounded-lg flex items-center justify-center transition-all ${
               isListening
                 ? 'bg-true-turquoise border-true-turquoise'
                 : 'bg-white border-gray-300 hover:border-gray-400'
-            } ${isSimulating ? 'opacity-50 cursor-not-allowed' : ''}`}
+            }`}
           >
             {/* Pulse rings when listening */}
             {isListening && (

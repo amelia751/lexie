@@ -5,7 +5,7 @@ import FileExplorer from '@/components/file-explorer/file-explorer';
 import TabCanvas from '@/components/tab-canvas/tab-canvas';
 import VoiceChat from '@/components/voice-chat/voice-chat';
 import { type Evidence } from '@/lib/mock-data';
-import { Layers, MessageSquare, FolderOpen } from 'lucide-react';
+import { Layers, AudioWaveform, FolderOpen, Signature } from 'lucide-react';
 import { EvidenceProvider } from '@/contexts/evidence-context';
 
 interface ResizeHandleProps {
@@ -89,7 +89,7 @@ export default function InterfaceLayout() {
         <div className="flex items-center justify-between px-6 py-3">
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 bg-true-turquoise rounded-md flex items-center justify-center">
-              <span className="text-white font-bold text-sm">L</span>
+              <Signature className="w-4 h-4 text-white" />
             </div>
             <div>
               <h1 className="text-base font-semibold text-offblack">Lexie</h1>
@@ -117,7 +117,7 @@ export default function InterfaceLayout() {
                   : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
               }`}
             >
-              <MessageSquare className="w-3.5 h-3.5" />
+              <AudioWaveform className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Voice</span>
             </button>
           </div>
