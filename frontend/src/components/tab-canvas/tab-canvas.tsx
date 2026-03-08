@@ -14,8 +14,12 @@ import TimelineView from './views/timeline-view';
 import DamagesView from './views/damages-view';
 import MedicalSummaryView from './views/medical-summary-view';
 import EvidenceHubView from './views/evidence-hub-view';
-
-type TabType = 'summary' | 'timeline' | 'damages' | 'medical' | 'evidence';
+import LiveCaseSummaryView from './views/live-case-summary-view';
+import LiveTimelineView from './views/live-timeline-view';
+import LiveDamagesView from './views/live-damages-view';
+import LiveMedicalView from './views/live-medical-view';
+import LiveEvidenceView from './views/live-evidence-view';
+import { useLiveCase, TabType } from '@/contexts/live-case-context';
 
 interface Tab {
   id: TabType;
@@ -32,28 +36,69 @@ const tabs: Tab[] = [
 ];
 
 export default function TabCanvas() {
-  const [openTabs, setOpenTabs] = useState<TabType[]>(['summary']);
-  const [activeTab, setActiveTab] = useState<TabType>('summary');
+  const { 
+    isSessionActive, 
+    hasLiveData,
+    activeTab, 
+    openTabs, 
+    setActiveTab, 
+    lastUpdatedTab,
+  } = useLiveCase();
+  
+  // Local state for non-live mode tab management
+  const [localOpenTabs, setLocalOpenTabs] = useState<TabType[]>(['summary']);
+  const [localActiveTab, setLocalActiveTab] = useState<TabType>('summary');
+  
+  // Show live views if session is active OR if there's live data from a completed session
+  const showLiveViews = isSessionActive || hasLiveData;
+  
+  // Use live state when showing live views, otherwise use local state
+  const effectiveOpenTabs = showLiveViews ? openTabs : localOpenTabs;
+  const effectiveActiveTab = showLiveViews ? activeTab : localActiveTab;
 
   const handleTabClick = (tabId: TabType) => {
-    if (!openTabs.includes(tabId)) {
-      setOpenTabs([...openTabs, tabId]);
+    if (showLiveViews) {
+      setActiveTab(tabId);
+    } else {
+      if (!localOpenTabs.includes(tabId)) {
+        setLocalOpenTabs([...localOpenTabs, tabId]);
+      }
+      setLocalActiveTab(tabId);
     }
-    setActiveTab(tabId);
   };
 
   const handleCloseTab = (tabId: TabType, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newOpenTabs = openTabs.filter(id => id !== tabId);
-    setOpenTabs(newOpenTabs);
-
-    if (activeTab === tabId && newOpenTabs.length > 0) {
-      setActiveTab(newOpenTabs[newOpenTabs.length - 1]);
+    if (!showLiveViews) {
+      const newOpenTabs = localOpenTabs.filter(id => id !== tabId);
+      setLocalOpenTabs(newOpenTabs);
+      if (localActiveTab === tabId && newOpenTabs.length > 0) {
+        setLocalActiveTab(newOpenTabs[newOpenTabs.length - 1]);
+      }
     }
   };
 
   const renderTabContent = () => {
-    switch (activeTab) {
+    // Use live views when session is active or has live data
+    if (showLiveViews) {
+      switch (effectiveActiveTab) {
+        case 'summary':
+          return <LiveCaseSummaryView />;
+        case 'timeline':
+          return <LiveTimelineView />;
+        case 'damages':
+          return <LiveDamagesView />;
+        case 'medical':
+          return <LiveMedicalView />;
+        case 'evidence':
+          return <LiveEvidenceView />;
+        default:
+          return <EmptyCanvasState />;
+      }
+    }
+    
+    // Use static views when no live data
+    switch (effectiveActiveTab) {
       case 'summary':
         return <CaseSummaryView />;
       case 'timeline':
@@ -65,9 +110,18 @@ export default function TabCanvas() {
       case 'evidence':
         return <EvidenceHubView />;
       default:
-        return null;
+        return <EmptyCanvasState />;
     }
   };
+
+  // Show empty state only when session is active but no tabs open yet
+  if (isSessionActive && openTabs.length === 0) {
+    return (
+      <div className="flex flex-col h-full bg-white">
+        <EmptyCanvasState />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -75,13 +129,19 @@ export default function TabCanvas() {
       <div className="flex-shrink-0 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center px-2 gap-1 overflow-x-auto scrollbar-thin">
           {tabs.map((tab) => {
-            const isOpen = openTabs.includes(tab.id);
-            const isActive = activeTab === tab.id;
+            const isOpen = effectiveOpenTabs.includes(tab.id);
+            const isActive = effectiveActiveTab === tab.id;
+            const isUpdating = lastUpdatedTab === tab.id && isSessionActive;
+
+            // In live mode, only show open tabs. In static mode, show all.
+            if (showLiveViews && !isOpen) {
+              return null;
+            }
 
             return (
               <div
                 key={tab.id}
-                className={`group flex items-center gap-2 px-4 py-2 text-xs font-medium transition-colors border-b-2 cursor-pointer ${
+                className={`group flex items-center gap-2 px-4 py-2 text-xs font-medium transition-all border-b-2 cursor-pointer relative ${
                   isActive
                     ? 'border-true-turquoise text-true-turquoise bg-white'
                     : isOpen
@@ -90,9 +150,16 @@ export default function TabCanvas() {
                 }`}
                 onClick={() => handleTabClick(tab.id)}
               >
+                {/* Update indicator - subtle dot */}
+                {isUpdating && !isActive && (
+                  <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-true-turquoise"></span>
+                )}
+                
                 {tab.icon}
                 <span className="whitespace-nowrap">{tab.label}</span>
-                {isOpen && openTabs.length > 1 && (
+                
+                {/* Close button - only in static mode with multiple tabs */}
+                {isOpen && effectiveOpenTabs.length > 1 && !showLiveViews && (
                   <button
                     onClick={(e) => handleCloseTab(tab.id, e)}
                     className="ml-2 p-0.5 hover:bg-gray-200 transition-colors"
@@ -109,6 +176,22 @@ export default function TabCanvas() {
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden">
         {renderTabContent()}
+      </div>
+    </div>
+  );
+}
+
+function EmptyCanvasState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full bg-white">
+      <div className="text-center max-w-sm px-8">
+        <div className="w-12 h-12 mx-auto mb-4 border border-gray-200 rounded-lg flex items-center justify-center">
+          <FileSearch className="w-6 h-6 text-gray-400" />
+        </div>
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">Ready for Intake</h3>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Start a voice session to begin. Case details will populate here as information is gathered.
+        </p>
       </div>
     </div>
   );

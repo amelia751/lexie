@@ -5,8 +5,9 @@ import FileExplorer from '@/components/file-explorer/file-explorer';
 import TabCanvas from '@/components/tab-canvas/tab-canvas';
 import VoiceChat from '@/components/voice-chat/voice-chat';
 import { type Evidence } from '@/lib/mock-data';
-import { Layers, AudioWaveform, FolderOpen, Signature } from 'lucide-react';
+import { AudioWaveform, FolderOpen, Signature } from 'lucide-react';
 import { EvidenceProvider } from '@/contexts/evidence-context';
+import { LiveCaseProvider } from '@/contexts/live-case-context';
 
 interface ResizeHandleProps {
   onResize: (width: number) => void;
@@ -56,7 +57,7 @@ function ResizeHandle({ onResize, side }: ResizeHandleProps) {
   );
 }
 
-export default function InterfaceLayout() {
+function InterfaceLayoutInner() {
   const [explorerWidth, setExplorerWidth] = useState(320);
   const [voiceChatWidth, setVoiceChatWidth] = useState(400);
   const [selectedFile, setSelectedFile] = useState<Evidence | null>(null);
@@ -82,10 +83,9 @@ export default function InterfaceLayout() {
   };
 
   return (
-    <EvidenceProvider>
-      <div className="flex flex-col h-screen bg-gray-50">
-        {/* Header */}
-        <header className="flex-shrink-0 bg-white border-b border-gray-200">
+    <div className="flex flex-col h-screen bg-gray-50">
+      {/* Header */}
+      <header className="flex-shrink-0 bg-white border-b border-gray-200">
         <div className="flex items-center justify-between px-6 py-3">
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 bg-true-turquoise rounded-md flex items-center justify-center">
@@ -157,6 +157,15 @@ export default function InterfaceLayout() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function InterfaceLayout() {
+  return (
+    <EvidenceProvider>
+      <LiveCaseProvider>
+        <InterfaceLayoutInner />
+      </LiveCaseProvider>
     </EvidenceProvider>
   );
 }

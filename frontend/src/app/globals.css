@@ -28,6 +28,89 @@
   animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Live data reveal animations */
+@keyframes fadeSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes highlight {
+  0% {
+    background-color: rgba(45, 157, 155, 0.2);
+    box-shadow: 0 0 0 2px rgba(45, 157, 155, 0.3);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+@keyframes typewriter {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(45, 157, 155, 0.3), 0 0 10px rgba(45, 157, 155, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(45, 157, 155, 0.5), 0 0 25px rgba(45, 157, 155, 0.3);
+  }
+}
+
+.animate-fadeSlideIn {
+  animation: fadeSlideIn 0.4s ease-out forwards;
+}
+
+.animate-highlight {
+  animation: highlight 2s ease-out forwards;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(45, 157, 155, 0.1) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+/* Staggered animation delays for lists */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+.stagger-5 { animation-delay: 0.5s; }
+
+/* Live typing cursor */
+.live-cursor::after {
+  content: '|';
+  animation: blink 1s step-end infinite;
+  color: var(--color-true-turquoise);
+  font-weight: bold;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

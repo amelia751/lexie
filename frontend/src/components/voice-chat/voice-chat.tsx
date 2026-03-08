@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { mockConversationWithDocuments, type VoiceMessage } from '@/lib/mock-data';
 import { Mic, MicOff, PhoneForwarded, Upload, X, Clock } from 'lucide-react';
+import { useLiveCase } from '@/contexts/live-case-context';
 
 export default function VoiceChat() {
   const [isListening, setIsListening] = useState(false);
@@ -15,6 +16,20 @@ export default function VoiceChat() {
   const [dragOver, setDragOver] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const resumeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isStoppedRef = useRef(false);
+  
+  const { 
+    startSession, 
+    resetCase,
+    updateCaseFact,
+    addEvidenceItem,
+    updateEvidenceStatus,
+    addTimelineEvent,
+    addMedicalRecord,
+    updateDamages,
+    setActiveTab,
+  } = useLiveCase();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -24,41 +39,245 @@ export default function VoiceChat() {
     scrollToBottom();
   }, [messages]);
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Helper to map document response to evidence status
+  const getEvidenceStatus = (response: 'uploaded' | 'dont-have' | 'later' | null | undefined): 'uploaded' | 'pending' | 'not_available' | 'required' => {
+    if (response === 'uploaded') return 'uploaded';
+    if (response === 'later') return 'pending';
+    if (response === 'dont-have') return 'not_available';
+    return 'required';
+  };
+
+  // Dispatch live data updates based on message index
+  const dispatchLiveUpdate = useCallback((messageIndex: number, message: VoiceMessage) => {
+    const baseDelay = 500;
+    
+    switch (messageIndex) {
+      case 0:
+        setTimeout(() => setActiveTab('summary'), baseDelay);
+        break;
+        
+      case 1:
+        setTimeout(() => {
+          updateCaseFact('incidentType', 'Construction Fall');
+          updateCaseFact('incidentDescription', 'Fell from a scaffold at a construction site');
+        }, baseDelay);
+        setTimeout(() => {
+          addTimelineEvent({
+            id: 'incident-1',
+            date: new Date().toISOString().split('T')[0],
+            event: 'Workplace Injury Reported',
+            description: 'Worker fell from scaffold at construction site',
+            category: 'incident',
+          });
+        }, baseDelay + 800);
+        break;
+        
+      case 3:
+        setTimeout(() => {
+          updateCaseFact('incidentDate', 'February 20, 2024');
+          updateCaseFact('incidentLocation', '5th Avenue - New Office Building Project');
+        }, baseDelay);
+        setTimeout(() => {
+          updateCaseFact('employerName', 'Construction Site - 5th Avenue');
+        }, baseDelay + 600);
+        break;
+        
+      case 4:
+        setTimeout(() => setActiveTab('evidence'), baseDelay);
+        break;
+        
+      case 5:
+        setTimeout(() => {
+          addEvidenceItem({
+            id: 'incident_report_0',
+            type: 'incident_report',
+            description: "Employer's incident/accident report",
+            status: 'required',
+            priority: 'critical',
+          });
+        }, baseDelay);
+        break;
+        
+      case 6:
+        setTimeout(() => {
+          updateEvidenceStatus('incident_report_0', getEvidenceStatus(documentResponses[5]));
+          addEvidenceItem({
+            id: 'medical_records_er_1',
+            type: 'medical_records_er',
+            description: 'Emergency room records from day of injury',
+            status: 'required',
+            priority: 'critical',
+          });
+        }, baseDelay);
+        setTimeout(() => {
+          addTimelineEvent({
+            id: 'er-visit-1',
+            date: '2024-02-20',
+            time: '14:30',
+            event: 'Emergency Room Visit',
+            description: 'Patient transported to ER following scaffold fall',
+            category: 'medical',
+          });
+        }, baseDelay + 800);
+        break;
+        
+      case 7:
+        setTimeout(() => {
+          updateEvidenceStatus('medical_records_er_1', getEvidenceStatus(documentResponses[6]));
+          addEvidenceItem({
+            id: 'photos_scene_2',
+            type: 'photos_scene',
+            description: 'Photos of the accident scene/location',
+            status: 'required',
+            priority: 'important',
+          });
+        }, baseDelay);
+        break;
+        
+      case 8:
+        setTimeout(() => {
+          updateEvidenceStatus('photos_scene_2', getEvidenceStatus(documentResponses[7]));
+          addEvidenceItem({
+            id: 'photos_injuries_3',
+            type: 'photos_injuries',
+            description: 'Photos of injuries',
+            status: 'required',
+            priority: 'important',
+          });
+        }, baseDelay);
+        break;
+        
+      case 9:
+        setTimeout(() => {
+          updateEvidenceStatus('photos_injuries_3', getEvidenceStatus(documentResponses[8]));
+          addEvidenceItem({
+            id: 'witness_statements_4',
+            type: 'witness_statements',
+            description: 'Written statements from witnesses',
+            status: 'required',
+            priority: 'important',
+          });
+        }, baseDelay);
+        break;
+        
+      case 10:
+        setTimeout(() => {
+          updateEvidenceStatus('witness_statements_4', getEvidenceStatus(documentResponses[9]));
+        }, baseDelay);
+        break;
+        
+      case 11:
+        setTimeout(() => setActiveTab('medical'), baseDelay);
+        setTimeout(() => {
+          updateCaseFact('injuries', ['Fractured vertebrae (3)', 'Back trauma', 'Potential nerve damage']);
+          updateCaseFact('injurySeverity', 'severe');
+        }, baseDelay + 500);
+        setTimeout(() => {
+          addMedicalRecord({
+            id: 'er-record-1',
+            date: '2024-02-20',
+            provider: 'City General Hospital - ER',
+            service: 'Emergency Room Visit',
+            diagnosis: 'Multiple vertebral fractures',
+            amount: 8500,
+          });
+        }, baseDelay + 1000);
+        setTimeout(() => {
+          addMedicalRecord({
+            id: 'imaging-1',
+            date: '2024-02-20',
+            provider: 'City General Hospital - Radiology',
+            service: 'Spinal X-Ray & CT Scan',
+            diagnosis: 'T11, T12, L1 compression fractures',
+            amount: 3200,
+          });
+        }, baseDelay + 1500);
+        break;
+        
+      case 12:
+        setTimeout(() => setActiveTab('damages'), baseDelay);
+        setTimeout(() => {
+          updateCaseFact('medicalExpenses', 11700);
+          updateDamages({
+            pastMedical: 11700,
+            futureMedical: 85000,
+            lostWages: 15000,
+            painAndSuffering: 150000,
+            settlementLow: 180000,
+            settlementHigh: 320000,
+          });
+        }, baseDelay + 800);
+        break;
+    }
+  }, [updateCaseFact, addEvidenceItem, updateEvidenceStatus, addTimelineEvent, addMedicalRecord, updateDamages, setActiveTab, documentResponses]);
+
   const playNextMessage = useCallback(async (startIndex: number) => {
     for (let i = startIndex; i < mockConversationWithDocuments.length; i++) {
       await new Promise(resolve => setTimeout(resolve, 2000));
       setMessages(prev => [...prev, mockConversationWithDocuments[i]]);
       setCurrentMessageIndex(i);
+      
+      dispatchLiveUpdate(i, mockConversationWithDocuments[i]);
 
-      // If this message has a document request, pause and wait for user interaction
       if (mockConversationWithDocuments[i].documentRequest) {
         setIsPaused(true);
-        return; // Stop here and wait for user response
+        return;
       }
     }
 
-    // Finished all messages
+    // Conversation completed naturally - data stays visible
     setIsSimulating(false);
     setIsListening(false);
-  }, []);
+    
+    // Add completion message
+    setMessages(prev => [...prev, {
+      role: 'agent' as const,
+      content: '--- Intake session completed ---',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    }]);
+  }, [dispatchLiveUpdate]);
 
-  // Resume conversation after user responds to document request
   useEffect(() => {
     if (isPaused && documentResponses[currentMessageIndex] !== undefined && documentResponses[currentMessageIndex] !== null) {
       setIsPaused(false);
-      // Continue with next message after a short delay
-      setTimeout(() => {
-        playNextMessage(currentMessageIndex + 1);
+      
+      // Clear any existing timeout
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+      }
+      
+      // Schedule next message, but check if stopped before executing
+      resumeTimeoutRef.current = setTimeout(() => {
+        if (!isStoppedRef.current) {
+          playNextMessage(currentMessageIndex + 1);
+        }
       }, 1000);
     }
   }, [documentResponses, currentMessageIndex, isPaused, playNextMessage]);
 
   const simulateConversation = () => {
+    // Clear stopped flag and any pending timeout
+    isStoppedRef.current = false;
+    if (resumeTimeoutRef.current) {
+      clearTimeout(resumeTimeoutRef.current);
+      resumeTimeoutRef.current = null;
+    }
+    
+    resetCase();
+    startSession();
+    
     setIsSimulating(true);
     setIsListening(true);
     setIsPaused(false);
-
-    // Start playing messages from the beginning
     setMessages([]);
     setCurrentMessageIndex(0);
     setDocumentResponses({});
@@ -66,33 +285,48 @@ export default function VoiceChat() {
   };
 
   const resumeConversation = () => {
+    // Clear stopped flag and any pending timeout
+    isStoppedRef.current = false;
+    if (resumeTimeoutRef.current) {
+      clearTimeout(resumeTimeoutRef.current);
+      resumeTimeoutRef.current = null;
+    }
+    
     setIsSimulating(true);
     setIsListening(true);
     setIsPaused(false);
-
-    // Continue from where we left off
     playNextMessage(currentMessageIndex + 1);
   };
 
   const handleToggleListening = () => {
     if (!isListening && !isSimulating) {
-      // Check if there are existing messages and if the last one is a session end
-      const hasSessionEnd = messages.length > 0 && messages[messages.length - 1].content === '--- Session ended ---';
+      const lastMessage = messages.length > 0 ? messages[messages.length - 1].content : '';
+      const hasSessionEnd = lastMessage === '--- Session ended ---' || lastMessage === '--- Intake session completed ---';
+      const canResume = currentMessageIndex < mockConversationWithDocuments.length - 1;
 
-      if (hasSessionEnd && currentMessageIndex < mockConversationWithDocuments.length - 1) {
+      if (hasSessionEnd && canResume) {
         // Resume from where we left off
+        startSession();
         resumeConversation();
+      } else if (hasSessionEnd && !canResume) {
+        // Start a new conversation (previous one completed)
+        simulateConversation();
       } else {
-        // Start fresh conversation
+        // Start fresh
         simulateConversation();
       }
     } else {
-      // Stop conversation but keep messages
+      // User clicked stop - set stopped flag and clear pending timeout
+      isStoppedRef.current = true;
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+        resumeTimeoutRef.current = null;
+      }
+      
       setIsListening(false);
       setIsSimulating(false);
       setIsPaused(false);
-
-      // Add session end indicator
+      
       setMessages(prev => [...prev, {
         role: 'agent' as const,
         content: '--- Session ended ---',
@@ -105,7 +339,6 @@ export default function VoiceChat() {
     const file = event.target.files?.[0];
     if (file) {
       setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'uploaded' }));
-      // In real app, would upload file here
     }
   };
 
@@ -146,13 +379,11 @@ export default function VoiceChat() {
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
       const file = files[0];
-      // Check if file type is acceptable
       const acceptableTypes = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.zip'];
       const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
 
       if (acceptableTypes.includes(fileExtension)) {
         setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'uploaded' }));
-        // In real app, would upload file here
       }
     }
   };
