@@ -12,6 +12,9 @@ export interface LiveCaseFacts {
   incidentLocation?: string;
   incidentDescription?: string;
   incidentType?: string;
+  caseType?: string;
+  jurisdiction?: string;
+  liability?: string;
   injuries?: string[];
   injurySeverity?: string;
   medicalExpenses?: number;
@@ -56,6 +59,7 @@ export interface LiveDamagesEstimate {
   futureMedical?: number;
   lostWages?: number;
   painAndSuffering?: number;
+  propertyDamage?: number;
   settlementLow?: number;
   settlementHigh?: number;
   calculatedAt?: number;

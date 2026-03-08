@@ -35,38 +35,38 @@ export default function LiveCaseSummaryView() {
       <div className="max-w-5xl mx-auto p-8 space-y-6">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4">
-          <h1 className="text-lg font-semibold text-true-turquoise">
+          <h1 className="text-lg font-semibold text-gray-900">
             {caseFacts.incidentType || 'Case Intake'}
           </h1>
           <p className="text-xs text-gray-500 mt-1">Information gathered during intake</p>
         </div>
 
         {/* Key Details Grid */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           {caseFacts.plaintiffName && (
-            <div className={`border border-gray-200 rounded-lg p-4 transition-all ${isFieldUpdating('plaintiffName') ? 'animate-fadeSlideIn' : ''}`}>
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Plaintiff</div>
+            <div className={`border border-gray-200 rounded-lg px-3 py-2 transition-all ${isFieldUpdating('plaintiffName') ? 'animate-fadeSlideIn' : ''}`}>
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Plaintiff</div>
               <p className="text-sm font-medium text-gray-900">{caseFacts.plaintiffName}</p>
             </div>
           )}
 
           {caseFacts.incidentDate && (
-            <div className={`border border-gray-200 rounded-lg p-4 transition-all ${isFieldUpdating('incidentDate') ? 'animate-fadeSlideIn' : ''}`}>
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Incident Date</div>
+            <div className={`border border-gray-200 rounded-lg px-3 py-2 transition-all ${isFieldUpdating('incidentDate') ? 'animate-fadeSlideIn' : ''}`}>
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Incident Date</div>
               <p className="text-sm font-medium text-gray-900">{caseFacts.incidentDate}</p>
             </div>
           )}
 
           {caseFacts.incidentLocation && (
-            <div className={`border border-gray-200 rounded-lg p-4 transition-all ${isFieldUpdating('incidentLocation') ? 'animate-fadeSlideIn' : ''}`}>
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Location</div>
+            <div className={`border border-gray-200 rounded-lg px-3 py-2 transition-all ${isFieldUpdating('incidentLocation') ? 'animate-fadeSlideIn' : ''}`}>
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Location</div>
               <p className="text-sm font-medium text-gray-900">{caseFacts.incidentLocation}</p>
             </div>
           )}
 
           {caseFacts.employerName && (
-            <div className={`border border-gray-200 rounded-lg p-4 transition-all ${isFieldUpdating('employerName') ? 'animate-fadeSlideIn' : ''}`}>
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Employer</div>
+            <div className={`border border-gray-200 rounded-lg px-3 py-2 transition-all ${isFieldUpdating('employerName') ? 'animate-fadeSlideIn' : ''}`}>
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Employer</div>
               <p className="text-sm font-medium text-gray-900">{caseFacts.employerName}</p>
             </div>
           )}

@@ -128,7 +128,7 @@ export default function MedicalSummaryView() {
         <div className="max-w-6xl mx-auto p-8 space-y-6">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4">
-          <h1 className="text-lg font-semibold text-true-turquoise">Medical Summary Report</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Medical Summary Report</h1>
           <p className="text-xs text-gray-500 mt-1">Case PI-2024-001234 • Sarah Johnson • DOI: January 15, 2024</p>
         </div>
 

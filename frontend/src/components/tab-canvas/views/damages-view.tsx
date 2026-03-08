@@ -150,7 +150,7 @@ export default function DamagesView() {
         <div className="max-w-6xl mx-auto p-8 space-y-6">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4">
-          <h1 className="text-lg font-semibold text-true-turquoise">Damages Analysis</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Damages Analysis</h1>
           <p className="text-xs text-gray-500 mt-1">Financial valuation and settlement analysis</p>
         </div>
 

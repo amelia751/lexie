@@ -14,6 +14,7 @@ export default function VoiceChat() {
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  const [pendingDocRequest, setPendingDocRequest] = useState<{ description: string; index: number } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const resumeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -85,6 +86,9 @@ export default function VoiceChat() {
         setTimeout(() => {
           updateCaseFact('incidentDate', 'February 20, 2024');
           updateCaseFact('incidentLocation', '5th Avenue - New Office Building Project');
+          updateCaseFact('caseType', 'Workplace Injury - Construction');
+          updateCaseFact('jurisdiction', 'State Court');
+          updateCaseFact('liability', 'Employer negligence - scaffold safety violation');
         }, baseDelay);
         setTimeout(() => {
           updateCaseFact('employerName', 'Construction Site - 5th Avenue');
@@ -250,6 +254,11 @@ export default function VoiceChat() {
     if (isPaused && documentResponses[currentMessageIndex] !== undefined && documentResponses[currentMessageIndex] !== null) {
       setIsPaused(false);
       
+      // Clear pending doc request since it was just answered
+      if (pendingDocRequest && pendingDocRequest.index === currentMessageIndex) {
+        setPendingDocRequest(null);
+      }
+      
       // Clear any existing timeout
       if (resumeTimeoutRef.current) {
         clearTimeout(resumeTimeoutRef.current);
@@ -262,7 +271,7 @@ export default function VoiceChat() {
         }
       }, 1000);
     }
-  }, [documentResponses, currentMessageIndex, isPaused, playNextMessage]);
+  }, [documentResponses, currentMessageIndex, isPaused, playNextMessage, pendingDocRequest]);
 
   const simulateConversation = () => {
     // Clear stopped flag and any pending timeout
@@ -281,6 +290,8 @@ export default function VoiceChat() {
     setMessages([]);
     setCurrentMessageIndex(0);
     setDocumentResponses({});
+    setUploadedFileCounts({});
+    setPendingDocRequest(null);
     playNextMessage(0);
   };
 
@@ -307,12 +318,39 @@ export default function VoiceChat() {
       if (hasSessionEnd && canResume) {
         // Resume from where we left off
         startSession();
-        resumeConversation();
+        
+        // Check if there was a pending document request
+        if (pendingDocRequest) {
+          // Add a pickup message acknowledging the pending request
+          setMessages(prev => [...prev, {
+            role: 'agent' as const,
+            content: `Welcome back! Last time I was asking for "${pendingDocRequest.description}" but the session ended. Can you provide that document now?`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          }]);
+          
+          // Re-add the document request card
+          const originalMessage = mockConversationWithDocuments[pendingDocRequest.index];
+          if (originalMessage.documentRequest) {
+            setMessages(prev => [...prev, {
+              ...originalMessage,
+              content: '', // Clear the original content since we already said the pickup message
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            }]);
+          }
+          
+          setIsSimulating(true);
+          setIsListening(true);
+          setIsPaused(true); // Stay paused waiting for document
+        } else {
+          resumeConversation();
+        }
       } else if (hasSessionEnd && !canResume) {
         // Start a new conversation (previous one completed)
+        setPendingDocRequest(null);
         simulateConversation();
       } else {
         // Start fresh
+        setPendingDocRequest(null);
         simulateConversation();
       }
     } else {
@@ -321,6 +359,17 @@ export default function VoiceChat() {
       if (resumeTimeoutRef.current) {
         clearTimeout(resumeTimeoutRef.current);
         resumeTimeoutRef.current = null;
+      }
+      
+      // Check if we're paused on a document request - save it for resume
+      if (isPaused) {
+        const currentMsg = mockConversationWithDocuments[currentMessageIndex];
+        if (currentMsg?.documentRequest) {
+          setPendingDocRequest({
+            description: currentMsg.documentRequest.description,
+            index: currentMessageIndex,
+          });
+        }
       }
       
       setIsListening(false);
@@ -335,9 +384,16 @@ export default function VoiceChat() {
     }
   };
 
+  // Track uploaded file counts per message
+  const [uploadedFileCounts, setUploadedFileCounts] = useState<Record<number, number>>({});
+
   const handleDocumentUpload = (messageIndex: number, event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      setUploadedFileCounts(prev => ({ 
+        ...prev, 
+        [messageIndex]: (prev[messageIndex] || 0) + files.length 
+      }));
       setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'uploaded' }));
     }
   };
@@ -378,11 +434,23 @@ export default function VoiceChat() {
 
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
-      const file = files[0];
       const acceptableTypes = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.zip'];
-      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+      let validFileCount = 0;
+      
+      // Count valid files
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+        if (acceptableTypes.includes(fileExtension)) {
+          validFileCount++;
+        }
+      }
 
-      if (acceptableTypes.includes(fileExtension)) {
+      if (validFileCount > 0) {
+        setUploadedFileCounts(prev => ({ 
+          ...prev, 
+          [messageIndex]: (prev[messageIndex] || 0) + validFileCount 
+        }));
         setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'uploaded' }));
       }
     }
@@ -446,16 +514,17 @@ export default function VoiceChat() {
                       {/* Response UI */}
                       {!documentResponses[index] ? (
                         <div className="p-3 space-y-2">
-                          {/* Hidden file input */}
+                          {/* Hidden file input - accepts multiple files */}
                           <input
                             ref={(el) => { fileInputRefs.current[index] = el; }}
                             type="file"
+                            multiple
                             className="hidden"
                             onChange={(e) => handleDocumentUpload(index, e)}
                             accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.zip"
                           />
 
-                          {/* Upload Zone */}
+                          {/* Upload Zone - accepts multiple files */}
                           <div
                             onClick={() => handleUploadClick(index)}
                             onDragEnter={(e) => handleDragEnter(index, e)}
@@ -468,10 +537,14 @@ export default function VoiceChat() {
                                 : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                             }`}
                           >
-                            <div className="flex flex-col items-center gap-1.5 pointer-events-none">
+                            <div className="flex flex-col items-center gap-1.5 pointer-events-none text-center">
                               <Upload className="w-4 h-4 text-gray-400" />
-                              <div className="text-xs font-medium text-gray-700">Upload Document</div>
-                              <div className="text-[10px] text-gray-500">Click to browse or drag & drop</div>
+                              <div className="text-xs font-medium text-gray-700">Upload Documents</div>
+                              <div className="text-[10px] text-gray-500">
+                                Click to browse or drag & drop
+                                <br />
+                                (multiple files supported)
+                              </div>
                             </div>
                           </div>
 
@@ -505,7 +578,11 @@ export default function VoiceChat() {
                             {documentResponses[index] === 'uploaded' && (
                               <>
                                 <Upload className="w-3.5 h-3.5 text-emerald-700" />
-                                <span className="text-xs text-emerald-700">Document uploaded</span>
+                                <span className="text-xs text-emerald-700">
+                                  {uploadedFileCounts[index] && uploadedFileCounts[index] > 1 
+                                    ? `${uploadedFileCounts[index]} documents uploaded` 
+                                    : 'Document uploaded'}
+                                </span>
                               </>
                             )}
                             {documentResponses[index] === 'dont-have' && (
