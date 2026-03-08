@@ -290,8 +290,8 @@ export default function GeminiTestPage() {
         ws.onopen = () => {
           clearTimeout(t);
           setIsConnected(true);
-          setStatus("Connected - speak now!");
-          addSystem("🟢 Connected - speak now!");
+          setStatus("Connected");
+          addSystem("Connected");
           resolve();
         };
       });

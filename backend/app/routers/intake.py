@@ -158,7 +158,7 @@ async def intake_websocket(websocket: WebSocket, client_id: str):
     await websocket.send_json({
         "type": "status",
         "content": "connected",
-        "message": "Connected to Lexie Intake Assistant",
+        "message": "Connected",
     })
     
     # Create runner and session

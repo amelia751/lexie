@@ -126,7 +126,7 @@ export default function TabCanvas() {
   if ((isSessionActive && openTabs.length === 0) || showEmptyState) {
     return (
       <div className="flex flex-col h-full bg-white">
-        <EmptyCanvasState isLiveMode={evidenceMode === 'live'} />
+        <EmptyCanvasState />
       </div>
     );
   }
@@ -189,20 +189,16 @@ export default function TabCanvas() {
   );
 }
 
-function EmptyCanvasState({ isLiveMode = false }: { isLiveMode?: boolean }) {
+function EmptyCanvasState() {
   return (
     <div className="flex flex-col items-center justify-center h-full bg-white">
       <div className="text-center max-w-sm px-8">
         <div className="w-12 h-12 mx-auto mb-4 border border-gray-200 rounded-lg flex items-center justify-center">
           <FileSearch className="w-6 h-6 text-gray-400" />
         </div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">
-          {isLiveMode ? 'Ready for Live Intake' : 'Ready for Intake'}
-        </h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">Ready for Intake</h3>
         <p className="text-xs text-gray-500 leading-relaxed">
-          {isLiveMode 
-            ? 'Click the microphone to start speaking with Lexie. Case details will appear here as information is gathered.'
-            : 'Start a voice session to begin. Case details will populate here as information is gathered.'}
+          Start a voice session to begin. Case details will populate here as information is gathered.
         </p>
       </div>
     </div>

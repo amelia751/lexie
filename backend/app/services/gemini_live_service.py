@@ -484,13 +484,23 @@ class GeminiLiveService:
                         logger.error(f"Error in send_to_client for {client_id}: {e}")
                         raise
                 
-                # Send initial greeting
+                # Send initial status to client
                 await websocket.send_json({
                     "type": "status",
                     "content": "connected",
-                    "message": "Connected to Lexie. I'm ready to help with your intake.",
+                    "message": "Connected",
                     "config": self.get_session_info()["audio_config"],
                 })
+                
+                # Trigger Lexie to speak first with a greeting
+                live_request_queue.send_content(
+                    types.Content(
+                        role="user",
+                        parts=[types.Part.from_text(
+                            text="[Session started - please greet the user and introduce yourself as Lexie, then ask how you can help them today with their legal intake.]"
+                        )]
+                    )
+                )
                 
                 # Run both tasks concurrently
                 receive_task = asyncio.create_task(receive_from_client())

@@ -99,7 +99,7 @@ async def gemini_live_websocket(websocket: WebSocket, client_id: str):
     await manager.send_json(client_id, {
         "type": "status",
         "content": "connected",
-        "message": "Connected to Lexie Legal Intake Assistant",
+        "message": "Connected",
         "audio_config": {
             "input_sample_rate": 16000,
             "output_sample_rate": 24000,

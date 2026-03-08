@@ -105,6 +105,14 @@ export default function VoiceChat() {
   const [documentResponses, setDocumentResponses] = useState<Record<number, 'uploaded' | 'dont-have' | 'later' | null>>({});
   const [pendingDocRequest, setPendingDocRequest] = useState<PendingDocRequest | null>(null);
   
+  // Live mode document request (tracks the current evidence item being requested)
+  const [liveDocumentRequest, setLiveDocumentRequest] = useState<{
+    id: string;
+    description: string;
+    priority: 'critical' | 'important' | 'helpful';
+  } | null>(null);
+  const [liveDocResponseStatus, setLiveDocResponseStatus] = useState<'pending' | 'uploaded' | 'later' | 'dont-have'>('pending');
+  
   // Shared state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -153,6 +161,13 @@ export default function VoiceChat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Scroll to bottom when live document request appears
+  useEffect(() => {
+    if (liveDocumentRequest) {
+      scrollToBottom();
+    }
+  }, [liveDocumentRequest]);
 
   // Sync evidence context mode on initial render
   useEffect(() => {
@@ -310,6 +325,21 @@ export default function VoiceChat() {
     
     // Update evidence items
     if (data.evidenceItems) {
+      // Find the first REQUIRED item to show as the current document request
+      const firstRequired = data.evidenceItems.find(item => item.status === 'REQUIRED');
+      
+      if (firstRequired && mode === 'live') {
+        setLiveDocumentRequest({
+          id: firstRequired.id,
+          description: firstRequired.description,
+          priority: firstRequired.priority.toLowerCase() as 'critical' | 'important' | 'helpful',
+        });
+        setLiveDocResponseStatus('pending');
+      } else if (!firstRequired && mode === 'live') {
+        // No more required items - clear the request
+        setLiveDocumentRequest(null);
+      }
+      
       data.evidenceItems.forEach(item => {
         // Map backend status to frontend status
         let frontendStatus: 'required' | 'pending' | 'uploaded' | 'not_available' = 'required';
@@ -459,6 +489,8 @@ export default function VoiceChat() {
     setMessages([]);
     interruptedRef.current = false;
     lastAssistantContentRef.current = '';
+    setLiveDocumentRequest(null);
+    setLiveDocResponseStatus('pending');
     
     resetCase();
     startContextSession();
@@ -505,8 +537,8 @@ export default function VoiceChat() {
         ws.onopen = () => {
           clearTimeout(t);
           setIsConnected(true);
-          setStatus('Connected - speak now!');
-          addSystemMessage('🟢 Connected - speak now!');
+          setStatus('Connected');
+          addSystemMessage('Connected');
           resolve();
         };
       });
@@ -962,6 +994,52 @@ export default function VoiceChat() {
     setDocumentResponses(prev => ({ ...prev, [messageIndex]: 'later' }));
   };
 
+  // Live mode document handlers
+  const handleLiveDocUpload = (files: FileList) => {
+    if (liveDocumentRequest && files.length > 0) {
+      // Add files to explorer
+      Array.from(files).forEach(file => {
+        const fileId = addUploadedFile({
+          name: file.name,
+          size: formatFileSize(file.size),
+          type: getFileType(file.name),
+          status: 'processing',
+        });
+        
+        setTimeout(() => {
+          updateFileStatus(fileId, 'processed');
+        }, 2000 + Math.random() * 2000);
+      });
+      
+      setLiveDocResponseStatus('uploaded');
+      
+      // Send response to backend via voice (simulated user response)
+      // The user would naturally say "yes I have it" which triggers the agent
+    }
+  };
+
+  const handleLiveDontHave = () => {
+    if (liveDocumentRequest) {
+      setLiveDocResponseStatus('dont-have');
+      // Clear after a moment so the next request can be shown
+      setTimeout(() => {
+        setLiveDocumentRequest(null);
+        setLiveDocResponseStatus('pending');
+      }, 1500);
+    }
+  };
+
+  const handleLiveLater = () => {
+    if (liveDocumentRequest) {
+      setLiveDocResponseStatus('later');
+      // Clear after a moment so the next request can be shown
+      setTimeout(() => {
+        setLiveDocumentRequest(null);
+        setLiveDocResponseStatus('pending');
+      }, 1500);
+    }
+  };
+
   const handleUploadClick = (messageIndex: number) => {
     fileInputRefs.current[messageIndex]?.click();
   };
@@ -1060,6 +1138,8 @@ export default function VoiceChat() {
     setDocumentResponses({});
     setUploadedFileCounts({});
     setPendingDocRequest(null);
+    setLiveDocumentRequest(null);
+    setLiveDocResponseStatus('pending');
     setError(null);
     setStatus('Ready');
   };
@@ -1117,19 +1197,10 @@ export default function VoiceChat() {
             <div className="w-12 h-12 flex items-center justify-center mb-4">
               <PhoneForwarded className="w-6 h-6 text-gray-400" />
             </div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">
-              {mode === 'mock' ? 'Demo Ready' : 'Live Mode Ready'}
-            </h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Ready to Start</h3>
             <p className="text-xs text-gray-500 max-w-xs">
-              {mode === 'mock' 
-                ? 'Click the microphone below to start the demo conversation'
-                : 'Click the microphone below to connect and start speaking'}
+              Click the microphone below to begin voice intake
             </p>
-            {mode === 'live' && (
-              <p className="text-[10px] text-gray-400 mt-2">
-                Make sure backend is running on localhost:8000
-              </p>
-            )}
           </div>
         ) : (
           <>
@@ -1269,6 +1340,106 @@ export default function VoiceChat() {
                 )}
               </div>
             ))}
+            {/* Live Mode Document Request Card */}
+            {mode === 'live' && liveDocumentRequest && (
+              <div className="flex justify-start">
+                <div className="w-full max-w-[85%] border border-gray-200 rounded-lg bg-white overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                      {liveDocumentRequest.priority === 'critical' ? 'Required' : liveDocumentRequest.priority === 'important' ? 'Important' : 'Helpful'}
+                    </div>
+                    <div className="text-xs text-gray-700">
+                      {liveDocumentRequest.description}
+                    </div>
+                  </div>
+
+                  {liveDocResponseStatus === 'pending' ? (
+                    <div className="p-3 space-y-2">
+                      <input
+                        ref={(el) => { fileInputRefs.current[-1] = el; }}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => e.target.files && handleLiveDocUpload(e.target.files)}
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.zip"
+                      />
+
+                      <div
+                        onClick={() => fileInputRefs.current[-1]?.click()}
+                        onDragEnter={(e) => { e.preventDefault(); setDragOver(-1); }}
+                        onDragLeave={(e) => { e.preventDefault(); setDragOver(null); }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDragOver(null);
+                          if (e.dataTransfer.files) handleLiveDocUpload(e.dataTransfer.files);
+                        }}
+                        className={`w-full border-2 border-dashed rounded-lg p-4 cursor-pointer transition-colors ${
+                          dragOver === -1
+                            ? 'border-gray-900 bg-gray-100'
+                            : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex flex-col items-center gap-1.5 pointer-events-none text-center">
+                          <Upload className="w-4 h-4 text-gray-400" />
+                          <div className="text-xs font-medium text-gray-700">Upload Documents</div>
+                          <div className="text-[10px] text-gray-500">
+                            Click to browse or drag & drop
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleLiveDontHave}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                          I don't have this
+                        </button>
+                        <button
+                          onClick={handleLiveLater}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                        >
+                          <Clock className="w-3 h-3" />
+                          I'll provide later
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3">
+                      <div className={`flex items-center gap-2 px-3 py-2 border rounded-md ${
+                        liveDocResponseStatus === 'uploaded'
+                          ? 'bg-emerald-50 border-emerald-700'
+                          : liveDocResponseStatus === 'dont-have'
+                          ? 'bg-gray-50 border-gray-300'
+                          : 'bg-amber-50 border-amber-700'
+                      }`}>
+                        {liveDocResponseStatus === 'uploaded' && (
+                          <>
+                            <Upload className="w-3.5 h-3.5 text-emerald-700" />
+                            <span className="text-xs text-emerald-700">Document uploaded</span>
+                          </>
+                        )}
+                        {liveDocResponseStatus === 'dont-have' && (
+                          <>
+                            <X className="w-3.5 h-3.5 text-gray-600" />
+                            <span className="text-xs text-gray-600">Marked as not available</span>
+                          </>
+                        )}
+                        {liveDocResponseStatus === 'later' && (
+                          <>
+                            <Clock className="w-3.5 h-3.5 text-amber-700" />
+                            <span className="text-xs text-amber-700">Will provide later</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </>
         )}
@@ -1326,9 +1497,7 @@ export default function VoiceChat() {
 
           {/* Status text */}
           <p className="text-[10px] text-gray-500">
-            {isSessionActive 
-              ? (mode === 'mock' ? 'Click to stop' : 'Speaking... Click to stop') 
-              : (mode === 'mock' ? 'Click to start demo' : 'Click to start conversation')}
+            {isSessionActive ? 'Click to end session' : 'Click to begin'}
           </p>
         </div>
       </div>
