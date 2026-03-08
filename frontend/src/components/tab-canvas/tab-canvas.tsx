@@ -20,6 +20,7 @@ import LiveDamagesView from './views/live-damages-view';
 import LiveMedicalView from './views/live-medical-view';
 import LiveEvidenceView from './views/live-evidence-view';
 import { useLiveCase, TabType } from '@/contexts/live-case-context';
+import { useEvidence } from '@/contexts/evidence-context';
 
 interface Tab {
   id: TabType;
@@ -45,12 +46,17 @@ export default function TabCanvas() {
     lastUpdatedTab,
   } = useLiveCase();
   
+  const { mode: evidenceMode } = useEvidence();
+  
   // Local state for non-live mode tab management
   const [localOpenTabs, setLocalOpenTabs] = useState<TabType[]>(['summary']);
   const [localActiveTab, setLocalActiveTab] = useState<TabType>('summary');
   
   // Show live views if session is active OR if there's live data from a completed session
   const showLiveViews = isSessionActive || hasLiveData;
+  
+  // In live mode without live data, show empty state
+  const showEmptyState = evidenceMode === 'live' && !hasLiveData && !isSessionActive;
   
   // Use live state when showing live views, otherwise use local state
   const effectiveOpenTabs = showLiveViews ? openTabs : localOpenTabs;
@@ -114,11 +120,13 @@ export default function TabCanvas() {
     }
   };
 
-  // Show empty state only when session is active but no tabs open yet
-  if (isSessionActive && openTabs.length === 0) {
+  // Show empty state when:
+  // 1. Session is active but no tabs open yet, OR
+  // 2. In live mode without any live data
+  if ((isSessionActive && openTabs.length === 0) || showEmptyState) {
     return (
       <div className="flex flex-col h-full bg-white">
-        <EmptyCanvasState />
+        <EmptyCanvasState isLiveMode={evidenceMode === 'live'} />
       </div>
     );
   }
@@ -181,16 +189,20 @@ export default function TabCanvas() {
   );
 }
 
-function EmptyCanvasState() {
+function EmptyCanvasState({ isLiveMode = false }: { isLiveMode?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center h-full bg-white">
       <div className="text-center max-w-sm px-8">
         <div className="w-12 h-12 mx-auto mb-4 border border-gray-200 rounded-lg flex items-center justify-center">
           <FileSearch className="w-6 h-6 text-gray-400" />
         </div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Ready for Intake</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">
+          {isLiveMode ? 'Ready for Live Intake' : 'Ready for Intake'}
+        </h3>
         <p className="text-xs text-gray-500 leading-relaxed">
-          Start a voice session to begin. Case details will populate here as information is gathered.
+          {isLiveMode 
+            ? 'Click the microphone to start speaking with Lexie. Case details will appear here as information is gathered.'
+            : 'Start a voice session to begin. Case details will populate here as information is gathered.'}
         </p>
       </div>
     </div>

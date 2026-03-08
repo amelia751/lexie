@@ -30,9 +30,108 @@ from google.genai.types import (
 
 from app.agents import root_agent, live_agent
 from app.agents.live_agent import LIVE_MODEL, CHAT_MODEL
+from app.services.evidence_hub import evidence_hub
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def get_live_data_snapshot() -> dict:
+    """Get current state of all live data from evidence hub."""
+    facts = evidence_hub.get_facts()
+    checklist = evidence_hub.checklist
+    
+    # Extract nested facts safely
+    plaintiff = facts.get("plaintiff", {})
+    employer = facts.get("employer", {})
+    incident = facts.get("incident", {})
+    injuries = facts.get("injuries", {})
+    medical = facts.get("medical", {})
+    employment = facts.get("employment_impact", {})
+    witnesses = facts.get("witnesses", [])
+    safety = facts.get("safety", {})
+    insurance = facts.get("insurance", {})
+    damages = facts.get("damages", {})
+    
+    # Build evidence items list
+    evidence_items = []
+    for item in checklist:
+        evidence_items.append({
+            "id": item.id,
+            "type": item.type,
+            "description": item.description,
+            "status": item.status.value,
+            "priority": item.priority.value,
+        })
+    
+    # Build timeline from facts
+    timeline_events = []
+    if incident.get("date"):
+        timeline_events.append({
+            "id": "incident-1",
+            "date": incident.get("date", "Unknown"),
+            "event": "Workplace Injury",
+            "description": incident.get("description", ""),
+            "category": "incident",
+        })
+    
+    # Build medical records
+    medical_records = []
+    medical_expense = medical.get("expenses")
+    if medical_expense:
+        timeline_events.append({
+            "id": "medical-1",
+            "date": incident.get("date", "Unknown"),
+            "event": "Medical Treatment",
+            "description": f"Medical expenses: ${medical_expense:,}",
+            "category": "medical",
+        })
+        medical_records.append({
+            "id": "medical-1",
+            "date": incident.get("date", "Unknown"),
+            "provider": "Medical Treatment",
+            "service": "Total Medical Expenses",
+            "amount": medical_expense,
+        })
+    
+    # Build damages estimate
+    damages_estimate = {}
+    if damages.get("total_estimate"):
+        settlement = damages.get("settlement_range", {})
+        damages_estimate = {
+            "pastMedical": medical.get("expenses"),
+            "futureMedical": medical.get("future_estimate"),
+            "lostWages": employment.get("lost_wages"),
+            "settlementLow": settlement.get("low"),
+            "settlementHigh": settlement.get("high"),
+        }
+    
+    return {
+        "caseFacts": {
+            "plaintiffName": plaintiff.get("name"),
+            "plaintiffAge": plaintiff.get("age"),
+            "plaintiffOccupation": plaintiff.get("occupation"),
+            "employerName": employer.get("name"),
+            "incidentDate": incident.get("date"),
+            "incidentLocation": incident.get("location"),
+            "incidentDescription": incident.get("description"),
+            "incidentType": incident.get("type"),
+            "caseType": evidence_hub._case_type,
+            "injuries": injuries.get("list", []),
+            "injurySeverity": injuries.get("severity"),
+            "medicalExpenses": medical.get("expenses"),
+            "daysMissedWork": employment.get("days_missed"),
+            "lostWages": employment.get("lost_wages"),
+            "witnesses": witnesses,
+            "safetyViolations": safety.get("violations", []),
+            "workersCompFiled": insurance.get("workers_comp_filed"),
+        },
+        "evidenceItems": evidence_items,
+        "timelineEvents": timeline_events,
+        "medicalRecords": medical_records,
+        "damagesEstimate": damages_estimate,
+        "checklistStatus": evidence_hub.get_checklist_status(),
+    }
 
 
 class GeminiLiveService:
@@ -158,6 +257,9 @@ class GeminiLiveService:
             
             # Create the LiveRequestQueue for sending messages to Gemini
             live_request_queue = LiveRequestQueue()
+            
+            # Reset evidence hub for new session
+            evidence_hub.reset()
             
             # Store session info
             self.active_sessions[client_id] = {
@@ -285,9 +387,14 @@ class GeminiLiveService:
                         live_request_queue.close()
                         raise
                 
+                # Track previous state for change detection
+                prev_state = get_live_data_snapshot()
+                
                 # Task to receive from Gemini and send to client
                 async def send_to_client():
                     """Process events from run_live() and send to client."""
+                    nonlocal prev_state
+                    
                     try:
                         async for event in runner.run_live(
                             session=session,
@@ -342,8 +449,17 @@ class GeminiLiveService:
                                 await websocket.send_json({
                                     "type": "turn_complete",
                                 })
+                                
+                                # Send live update after turn complete (state may have changed)
+                                new_state = get_live_data_snapshot()
+                                if new_state != prev_state:
+                                    await websocket.send_json({
+                                        "type": "live_update",
+                                        "data": new_state,
+                                    })
+                                    prev_state = new_state
                             
-                            # Tool call events (Google Search, etc.)
+                            # Tool call events - send live update after each tool call
                             if event.actions:
                                 func_calls = event.get_function_calls()
                                 if func_calls:
@@ -351,7 +467,18 @@ class GeminiLiveService:
                                         await websocket.send_json({
                                             "type": "tool_call",
                                             "content": f"Calling {fc.name}...",
+                                            "tool": fc.name,
+                                            "args": dict(fc.args) if hasattr(fc, 'args') else {},
                                         })
+                                    
+                                    # Send live update after tool calls
+                                    new_state = get_live_data_snapshot()
+                                    if new_state != prev_state:
+                                        await websocket.send_json({
+                                            "type": "live_update",
+                                            "data": new_state,
+                                        })
+                                        prev_state = new_state
                                         
                     except Exception as e:
                         logger.error(f"Error in send_to_client for {client_id}: {e}")

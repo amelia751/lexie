@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 settings.setup_credentials()
 
 # Now import routers (which may use ADK)
-from app.routers import gemini_live, health
+from app.routers import gemini_live, health, intake
 
 
 @asynccontextmanager
@@ -63,6 +63,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, tags=["Health"])
 app.include_router(gemini_live.router, prefix="/api/v1", tags=["Gemini Live"])
+app.include_router(intake.router, prefix="/api/v1", tags=["Intake"])
 
 
 @app.get("/")

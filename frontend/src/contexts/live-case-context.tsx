@@ -65,6 +65,17 @@ export interface LiveDamagesEstimate {
   calculatedAt?: number;
 }
 
+// File uploaded by user with processing status
+export interface LiveUploadedFile {
+  id: string;
+  name: string;
+  size: string;
+  type: 'medical' | 'photo' | 'insurance' | 'police' | 'deposition' | 'other';
+  status: 'processing' | 'processed' | 'error';
+  uploadedAt: string;
+  errorMessage?: string;
+}
+
 export type TabType = 'summary' | 'timeline' | 'damages' | 'medical' | 'evidence';
 
 interface LiveCaseContextType {
@@ -86,6 +97,7 @@ interface LiveCaseContextType {
   timelineEvents: LiveTimelineEvent[];
   medicalRecords: LiveMedicalRecord[];
   damagesEstimate: LiveDamagesEstimate;
+  uploadedFiles: LiveUploadedFile[]; // Files in the explorer panel
   
   // Progressive update methods
   updateCaseFact: (field: keyof LiveCaseFacts, value: any) => void;
@@ -94,6 +106,10 @@ interface LiveCaseContextType {
   addTimelineEvent: (event: Omit<LiveTimelineEvent, 'addedAt'>) => void;
   addMedicalRecord: (record: Omit<LiveMedicalRecord, 'addedAt'>) => void;
   updateDamages: (damages: Partial<LiveDamagesEstimate>) => void;
+  
+  // File upload methods
+  addUploadedFile: (file: Omit<LiveUploadedFile, 'id' | 'uploadedAt'>) => string;
+  updateFileStatus: (id: string, status: LiveUploadedFile['status'], errorMessage?: string) => void;
   
   // Animation tracking
   lastUpdatedField: string | null;
@@ -120,6 +136,7 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
   const [timelineEvents, setTimelineEvents] = useState<LiveTimelineEvent[]>([]);
   const [medicalRecords, setMedicalRecords] = useState<LiveMedicalRecord[]>([]);
   const [damagesEstimate, setDamagesEstimate] = useState<LiveDamagesEstimate>(initialDamages);
+  const [uploadedFiles, setUploadedFiles] = useState<LiveUploadedFile[]>([]);
   
   const [lastUpdatedField, setLastUpdatedField] = useState<string | null>(null);
   const [lastUpdatedTab, setLastUpdatedTab] = useState<TabType | null>(null);
@@ -249,12 +266,43 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     }
   }, [clearUpdateHighlight, setActiveTab, isSessionActive]);
 
+  const addUploadedFile = useCallback((file: Omit<LiveUploadedFile, 'id' | 'uploadedAt'>): string => {
+    const id = `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const uploadedAt = new Date().toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    
+    const newFile: LiveUploadedFile = {
+      ...file,
+      id,
+      uploadedAt,
+    };
+    
+    setUploadedFiles(prev => [...prev, newFile]);
+    return id;
+  }, []);
+
+  const updateFileStatus = useCallback((id: string, status: LiveUploadedFile['status'], errorMessage?: string) => {
+    setUploadedFiles(prev => 
+      prev.map(file => 
+        file.id === id 
+          ? { ...file, status, errorMessage } 
+          : file
+      )
+    );
+  }, []);
+
   const resetCase = useCallback(() => {
     setCaseFacts(initialCaseFacts);
     setEvidenceItems([]);
     setTimelineEvents([]);
     setMedicalRecords([]);
     setDamagesEstimate(initialDamages);
+    setUploadedFiles([]);
     setOpenTabs([]);
     setActiveTabState('summary');
     setLastUpdatedField(null);
@@ -279,12 +327,15 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
         timelineEvents,
         medicalRecords,
         damagesEstimate,
+        uploadedFiles,
         updateCaseFact,
         addEvidenceItem,
         updateEvidenceStatus,
         addTimelineEvent,
         addMedicalRecord,
         updateDamages,
+        addUploadedFile,
+        updateFileStatus,
         lastUpdatedField,
         lastUpdatedTab,
         isTyping,
