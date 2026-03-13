@@ -6,6 +6,63 @@ This document lists all evidence files needed to test the Lexie legal intake sys
 
 ---
 
+## 🎤 Demo Script - Quick Answers for Agent Questions
+
+Use these responses when speaking with Lexie during a demo:
+
+### Opening / What Happened?
+> "I fell at a construction site. I was working on scaffolding and fell about 15 feet."
+
+### Your Name?
+> "Maria Santos" (or just "Maria")
+
+### When did this happen?
+> "February 8th, 2024" (or "about a month ago" / "early February")
+
+### Where did it happen?
+> "At a construction site in Riverside, California. It was called Riverside Medical Plaza."
+
+### Who do you work for?
+> "Titan Construction" (or "Titan Builders")
+
+### What's your job?
+> "I'm a carpenter. I've been doing construction for about 6 years."
+
+### How did you fall?
+> "I was installing drywall on the second floor. The scaffolding was missing guardrails - someone removed them and never put them back. I was reaching for a panel and the plank shifted under me. There was no safety harness either."
+
+### What injuries did you have?
+> "I broke my right wrist, got a concussion, and hurt my back pretty bad.
+
+### Did you go to the hospital?
+> "Yes, right away. Riverside General Hospital. Then I saw an orthopedic doctor, a neurologist, and I've been doing physical therapy."
+
+### Are you still in pain?
+> "Yes, my back still hurts and I get headaches from the concussion. The wrist is getting better but still weak."
+
+### Have you been able to work?
+> "No, I've been out of work for about 4 months now." (or "16 weeks")
+
+### How much do you make?
+> "$32 an hour, usually 40 hours a week."
+
+### Were there any witnesses?
+> "Yes, my coworker Carlos saw it happen. And an electrician named Jimmy was nearby too."
+
+### Was your employer cited for safety violations?
+> "Yes, OSHA came and cited them for missing guardrails and not providing fall protection. They got fined almost $50,000."
+
+### Do you have the documents?
+- **Incident report**: "Yes, I have a copy of the incident report from my employer."
+- **Medical records**: "Yes, I have all my medical records from the hospital and doctors."
+- **Photos**: "Yes, I have photos of the scaffolding and my injuries."
+- **Workers comp**: "Yes, I filed a workers comp claim."
+
+### What are your medical bills so far?
+> "About $67,000 so far, and they said I might need surgery which could be another $45,000."
+
+---
+
 ## Quick Overview
 
 | Category | File Count | Format | Status |

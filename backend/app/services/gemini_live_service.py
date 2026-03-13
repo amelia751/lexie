@@ -23,9 +23,6 @@ from google.genai.types import (
     SpeechConfig, 
     VoiceConfig, 
     PrebuiltVoiceConfig,
-    RealtimeInputConfig,
-    AutomaticActivityDetection,
-    ActivityHandling,
 )
 
 from app.agents import root_agent, live_agent
@@ -106,6 +103,17 @@ def get_live_data_snapshot() -> dict:
             "settlementHigh": settlement.get("high"),
         }
     
+    # Get the currently requested document (if any)
+    current_request = evidence_hub.get_currently_requested()
+    current_doc_request = None
+    if current_request:
+        current_doc_request = {
+            "id": current_request.id,
+            "type": current_request.type,
+            "description": current_request.description,
+            "priority": current_request.priority.value,
+        }
+    
     return {
         "caseFacts": {
             "plaintiffName": plaintiff.get("name"),
@@ -131,6 +139,7 @@ def get_live_data_snapshot() -> dict:
         "medicalRecords": medical_records,
         "damagesEstimate": damages_estimate,
         "checklistStatus": evidence_hub.get_checklist_status(),
+        "currentDocumentRequest": current_doc_request,  # Document being requested (shows UI card)
     }
 
 
@@ -302,27 +311,12 @@ class GeminiLiveService:
                                 voice_name="Puck",  # Friendly, professional voice
                             )
                         ),
-                        languageCode="en-US",  # Bias transcription towards English
                     ),
                     # Enable transcription for both input and output
                     output_audio_transcription=types.AudioTranscriptionConfig(),
                     input_audio_transcription=types.AudioTranscriptionConfig(),
-                    # Improve interruption handling with automatic activity detection
-                    realtime_input_config=RealtimeInputConfig(
-                        # User speech interrupts model response
-                        activity_handling=ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-                        automatic_activity_detection=AutomaticActivityDetection(
-                            disabled=False,
-                            # HIGH = more sensitive to speech start (faster interrupt)
-                            startOfSpeechSensitivity="START_SENSITIVITY_HIGH",
-                            # LOW = less sensitive to speech end (avoid cutting off)
-                            endOfSpeechSensitivity="END_SENSITIVITY_LOW",
-                            # Padding before speech detection
-                            prefixPaddingMs=100,
-                            # How long silence before turn ends
-                            silenceDurationMs=500,
-                        )
-                    ),
+                    # Note: realtime_input_config not supported in RunConfig
+                    # Interruption handling is done via ADK's built-in mechanisms
                 )
                 
                 # Task to receive from client and send to Gemini
@@ -349,8 +343,36 @@ class GeminiLiveService:
                                 msg_type = msg.get("type")
                                 
                                 if msg_type == "text":
-                                    # Text message
+                                    # Text message - increment message counter
+                                    turn_state["user_msg_count"] += 1
                                     content = msg.get("content", "")
+                                    
+                                    # INTERCEPT: Detect [DOCUMENT UPLOADED] and auto-process
+                                    if content.startswith("[DOCUMENT UPLOADED]"):
+                                        logger.info(f"[INTERCEPT] Document upload detected, auto-calling handle_evidence_response")
+                                        # Import the tool function directly
+                                        from app.agents.live_agent import handle_evidence_response
+                                        result = handle_evidence_response(has_document=True, document_uploaded=True)
+                                        logger.info(f"[INTERCEPT] Result: {result}")
+                                        
+                                        # Send notification to frontend about the tool call
+                                        await websocket.send_json({
+                                            "type": "tool_call",
+                                            "content": "Processing uploaded document...",
+                                            "tool": "handle_evidence_response",
+                                            "args": {"has_document": True, "document_uploaded": True},
+                                        })
+                                        
+                                        # Send updated state
+                                        new_state = get_live_data_snapshot()
+                                        await websocket.send_json({
+                                            "type": "live_update",
+                                            "data": new_state,
+                                        })
+                                        
+                                        # Modify message to tell agent the upload was handled
+                                        content = f"[Document already processed by system] User uploaded a document. The tool handle_evidence_response was already called. Please acknowledge receipt and analyze the document contents."
+                                    
                                     live_request_queue.send_content(
                                         types.Content(
                                             role="user",
@@ -359,7 +381,8 @@ class GeminiLiveService:
                                     )
                                     
                                 elif msg_type == "audio":
-                                    # Base64 encoded audio
+                                    # Audio input - increment message counter
+                                    turn_state["user_msg_count"] += 1
                                     audio_b64 = msg.get("data", "")
                                     audio_bytes = base64.b64decode(audio_b64)
                                     live_request_queue.send_realtime(
@@ -390,6 +413,15 @@ class GeminiLiveService:
                 # Track previous state for change detection
                 prev_state = get_live_data_snapshot()
                 
+                # Shared state for turn_complete and response deduplication
+                # Using a dict so it's mutable and shared between async tasks
+                turn_state = {
+                    "user_msg_count": 0,  # Incremented when user sends message
+                    "last_turn_sent": -1,  # Which msg's turn_complete we've sent
+                    "response_for_msg": -1,  # Which msg we've started responding to
+                    "response_text_sent": "",  # Track what text we've already sent
+                }
+                
                 # Task to receive from Gemini and send to client
                 async def send_to_client():
                     """Process events from run_live() and send to client."""
@@ -418,48 +450,90 @@ class GeminiLiveService:
                                 continue
                             
                             # Handle audio content (only send audio, not text from content)
+                            # Only send audio if we're actively responding to this turn
                             if event.content and event.content.parts:
-                                for part in event.content.parts:
-                                    # Check for inline audio data only
-                                    if hasattr(part, 'inline_data') and part.inline_data:
-                                        if part.inline_data.data:
-                                            await websocket.send_bytes(part.inline_data.data)
+                                current_msg = turn_state["user_msg_count"]
+                                # Only send audio if this is for the current response we're tracking
+                                if turn_state["response_for_msg"] == current_msg:
+                                    for part in event.content.parts:
+                                        # Check for inline audio data only
+                                        if hasattr(part, 'inline_data') and part.inline_data:
+                                            if part.inline_data.data:
+                                                await websocket.send_bytes(part.inline_data.data)
                                     # Note: Don't send text from content.parts - use transcription instead
                             
-                            # Handle assistant speech transcription
+                            # Handle assistant speech transcription - DEDUPLICATE responses
                             if event.output_transcription and event.output_transcription.text:
-                                await websocket.send_json({
-                                    "type": "transcript",
-                                    "role": "assistant",
-                                    "content": event.output_transcription.text,
-                                    "partial": not getattr(event.output_transcription, 'finished', True),
-                                })
+                                current_msg = turn_state["user_msg_count"]
+                                response_text = event.output_transcription.text
+                                
+                                # Check if this is a new response for this message
+                                if turn_state["response_for_msg"] < current_msg:
+                                    # First response for this turn - accept it
+                                    turn_state["response_for_msg"] = current_msg
+                                    turn_state["response_text_sent"] = response_text
+                                    
+                                    await websocket.send_json({
+                                        "type": "transcript",
+                                        "role": "assistant",
+                                        "content": response_text,
+                                        "partial": not getattr(event.output_transcription, 'finished', True),
+                                    })
+                                elif response_text.startswith(turn_state["response_text_sent"]):
+                                    # This is a continuation of the current response (streaming)
+                                    # Only send the new part
+                                    new_text = response_text[len(turn_state["response_text_sent"]):]
+                                    if new_text.strip():
+                                        turn_state["response_text_sent"] = response_text
+                                        await websocket.send_json({
+                                            "type": "transcript",
+                                            "role": "assistant",
+                                            "content": response_text,
+                                            "partial": not getattr(event.output_transcription, 'finished', True),
+                                        })
+                                # else: This is a duplicate/alternative response - skip it
                             
                             # Handle user speech transcription
                             if event.input_transcription and event.input_transcription.text:
+                                is_finished = getattr(event.input_transcription, 'finished', True)
+                                # Increment message counter when user finishes speaking
+                                # This is critical for voice input - binary audio doesn't increment counter
+                                if is_finished:
+                                    turn_state["user_msg_count"] += 1
+                                    logger.info(f"[User Speech Complete] msg #{turn_state['user_msg_count']}")
+                                
                                 await websocket.send_json({
                                     "type": "transcript",
                                     "role": "user",
                                     "content": event.input_transcription.text,
-                                    "partial": not getattr(event.input_transcription, 'finished', True),
+                                    "partial": not is_finished,
                                 })
                             
-                            # Turn complete notification
+                            # Turn complete notification - ONLY SEND ONCE per user message
+                            # ADK may fire turn_complete multiple times (after tool calls, after speech)
                             if event.turn_complete:
-                                await websocket.send_json({
-                                    "type": "turn_complete",
-                                })
-                                
-                                # Send live update after turn complete (state may have changed)
-                                new_state = get_live_data_snapshot()
-                                if new_state != prev_state:
+                                current_msg = turn_state["user_msg_count"]
+                                # Only send if we haven't sent turn_complete for this message yet
+                                if turn_state["last_turn_sent"] < current_msg:
+                                    turn_state["last_turn_sent"] = current_msg
+                                    
+                                    await websocket.send_json({
+                                        "type": "turn_complete",
+                                    })
+                                    
+                                    # Send live update after turn complete
+                                    new_state = get_live_data_snapshot()
+                                    logger.info(f"[Turn Complete] msg #{current_msg}, evidence items: {len(new_state.get('evidenceItems', []))}")
+                                    
                                     await websocket.send_json({
                                         "type": "live_update",
                                         "data": new_state,
                                     })
                                     prev_state = new_state
+                                # Skip duplicate turn_completes silently
                             
-                            # Tool call events - send live update after each tool call
+                            # Tool call events - just notify frontend about tool calls
+                            # (don't send live_update here - tools haven't executed yet)
                             if event.actions:
                                 func_calls = event.get_function_calls()
                                 if func_calls:
@@ -470,15 +544,6 @@ class GeminiLiveService:
                                             "tool": fc.name,
                                             "args": dict(fc.args) if hasattr(fc, 'args') else {},
                                         })
-                                    
-                                    # Send live update after tool calls
-                                    new_state = get_live_data_snapshot()
-                                    if new_state != prev_state:
-                                        await websocket.send_json({
-                                            "type": "live_update",
-                                            "data": new_state,
-                                        })
-                                        prev_state = new_state
                                         
                     except Exception as e:
                         logger.error(f"Error in send_to_client for {client_id}: {e}")

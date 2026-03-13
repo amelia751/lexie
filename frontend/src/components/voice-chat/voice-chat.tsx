@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { mockConversationWithDocuments, type VoiceMessage } from '@/lib/mock-data';
-import { Mic, MicOff, PhoneForwarded, Upload, X, Clock, Wifi, WifiOff, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Mic, MicOff, Pause, PhoneForwarded, Upload, X, Clock, Wifi, WifiOff, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useLiveCase, type LiveEvidenceItem, type LiveUploadedFile } from '@/contexts/live-case-context';
 import { useEvidence } from '@/contexts/evidence-context';
 
@@ -57,6 +57,12 @@ interface LiveDataSnapshot {
     analyzed: number;
     not_available: number;
   };
+  currentDocumentRequest: {
+    id: string;
+    type: string;
+    description: string;
+    priority: string;
+  } | null;
 }
 
 // Message type for unified display
@@ -88,6 +94,15 @@ interface PendingDocRequest {
 export default function VoiceChat() {
   // Mode toggle: 'mock' for simulation, 'live' for real backend
   const [mode, setMode] = useState<'mock' | 'live'>('live');
+  
+  // Debug panel state
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<{time: string; type: string; data: string}[]>([]);
+  const addDebugLog = (type: string, data: unknown) => {
+    const time = new Date().toLocaleTimeString();
+    const dataStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    setDebugLogs(prev => [...prev.slice(-50), { time, type, data: dataStr }]); // Keep last 50
+  };
   
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
@@ -129,6 +144,7 @@ export default function VoiceChat() {
   const playbackSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const interruptedRef = useRef(false);
   const lastAssistantContentRef = useRef("");
+  const handleWsMsgRef = useRef<((event: MessageEvent) => void) | null>(null);
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -308,6 +324,13 @@ export default function VoiceChat() {
 
   // Dispatch live data updates from backend
   const dispatchBackendLiveUpdate = useCallback((data: LiveDataSnapshot) => {
+    // Debug: log to UI panel
+    addDebugLog('LIVE_UPDATE', { 
+      evidenceCount: data.evidenceItems?.length || 0,
+      hasChecklist: !!data.evidenceItems?.length,
+      mode 
+    });
+    
     // Update case facts
     if (data.caseFacts) {
       const cf = data.caseFacts;
@@ -323,31 +346,39 @@ export default function VoiceChat() {
       if (cf.medicalExpenses) updateCaseFact('medicalExpenses', cf.medicalExpenses);
     }
     
+    // Handle current document request (from backend's request_evidence_upload)
+    // DEBUG: Log what we received
+    addDebugLog('DOC_REQ_RECEIVED', data.currentDocumentRequest ? `${data.currentDocumentRequest.id}` : 'null');
+    
+    if (data.currentDocumentRequest && mode === 'live') {
+      const req = data.currentDocumentRequest;
+      addDebugLog('SETTING_CARD', `${req.id}: ${req.description?.slice(0, 20)}`);
+      setLiveDocumentRequest({
+        id: req.id,
+        description: req.description,
+        priority: req.priority.toLowerCase() as 'critical' | 'important' | 'helpful',
+      });
+      setLiveDocResponseStatus('pending');
+    } else if (data.currentDocumentRequest === null && mode === 'live') {
+      // Explicitly cleared by backend
+      addDebugLog('CLEARING_CARD', 'null received');
+      setLiveDocumentRequest(null);
+    }
+    // If currentDocumentRequest is undefined, keep existing state
+    
     // Update evidence items
     if (data.evidenceItems) {
-      // Find the first REQUIRED item to show as the current document request
-      const firstRequired = data.evidenceItems.find(item => item.status === 'REQUIRED');
-      
-      if (firstRequired && mode === 'live') {
-        setLiveDocumentRequest({
-          id: firstRequired.id,
-          description: firstRequired.description,
-          priority: firstRequired.priority.toLowerCase() as 'critical' | 'important' | 'helpful',
-        });
-        setLiveDocResponseStatus('pending');
-      } else if (!firstRequired && mode === 'live') {
-        // No more required items - clear the request
-        setLiveDocumentRequest(null);
-      }
+      // Debug log evidence items
+      addDebugLog('EVIDENCE_ITEMS', data.evidenceItems.map(i => `${i.type}: ${i.status}`).slice(0, 5));
       
       data.evidenceItems.forEach(item => {
-        // Map backend status to frontend status
+        // Map backend status to frontend status (backend sends lowercase)
         let frontendStatus: 'required' | 'pending' | 'uploaded' | 'not_available' = 'required';
         switch (item.status) {
-          case 'REQUIRED': frontendStatus = 'required'; break;
-          case 'PENDING': frontendStatus = 'pending'; break;
-          case 'UPLOADED': case 'ANALYZED': frontendStatus = 'uploaded'; break;
-          case 'NOT_AVAILABLE': frontendStatus = 'not_available'; break;
+          case 'required': frontendStatus = 'required'; break;
+          case 'pending': frontendStatus = 'pending'; break;
+          case 'uploaded': case 'analyzed': frontendStatus = 'uploaded'; break;
+          case 'not_available': frontendStatus = 'not_available'; break;
         }
         
         // Check if item exists
@@ -410,7 +441,7 @@ export default function VoiceChat() {
         settlementHigh: data.damagesEstimate.settlementHigh,
       });
     }
-  }, [updateCaseFact, addEvidenceItem, updateEvidenceStatus, addTimelineEvent, addMedicalRecord, updateDamages, evidenceItems]);
+  }, [mode, updateCaseFact, addEvidenceItem, updateEvidenceStatus, addTimelineEvent, addMedicalRecord, updateDamages, evidenceItems]);
 
   // Handle WebSocket messages
   const handleWsMessage = useCallback(
@@ -429,6 +460,11 @@ export default function VoiceChat() {
       try {
         const msg = JSON.parse(event.data);
         const type = msg.type;
+        
+        // DEBUG: Log EVERY message type received
+        if (type !== 'transcript') {
+          addDebugLog('WS_MSG', `type=${type}`);
+        }
 
         if (type === 'status') {
           setStatus(msg.message || msg.content || 'Connected');
@@ -467,8 +503,10 @@ export default function VoiceChat() {
           setStatus('Listening...');
         } else if (type === 'tool_call') {
           addSystemMessage(`🔧 ${msg.content}`);
+          addDebugLog('TOOL_CALL', msg.tool || msg.content);
         } else if (type === 'live_update') {
           // Update live views with new data from backend
+          addDebugLog('WS_LIVE_UPDATE', 'Received');
           if (msg.data) {
             dispatchBackendLiveUpdate(msg.data as LiveDataSnapshot);
           }
@@ -480,8 +518,13 @@ export default function VoiceChat() {
         console.error('Parse error:', e);
       }
     },
-    [addSystemMessage, finalizeLiveTurn, playAudio, stopAudio, updateLiveTurn, dispatchBackendLiveUpdate]
+    [addDebugLog, addSystemMessage, finalizeLiveTurn, playAudio, stopAudio, updateLiveTurn, dispatchBackendLiveUpdate]
   );
+
+  // Keep ref updated so WebSocket always uses latest handler
+  useEffect(() => {
+    handleWsMsgRef.current = handleWsMessage;
+  }, [handleWsMessage]);
 
   // Start live session
   const startLiveSession = useCallback(async () => {
@@ -516,7 +559,12 @@ export default function VoiceChat() {
       const ws = new WebSocket(`${wsUrl}/api/v1/gemini-live/${clientId}`);
       wsRef.current = ws;
 
-      ws.onmessage = handleWsMessage;
+      // Use ref so we always call the latest version of the handler
+      ws.onmessage = (event) => {
+        if (handleWsMsgRef.current) {
+          handleWsMsgRef.current(event);
+        }
+      };
       ws.onerror = () => { 
         setError('Connection failed'); 
         setStatus('Error'); 
@@ -562,7 +610,7 @@ export default function VoiceChat() {
       setError(e instanceof Error ? e.message : 'Failed to start');
       setStatus('Error');
     }
-  }, [addSystemMessage, finalizeLiveTurn, handleWsMessage, resetCase, startContextSession, endContextSession]);
+  }, [addSystemMessage, finalizeLiveTurn, resetCase, startContextSession, endContextSession]);
 
   // Stop live session
   const stopLiveSession = useCallback(() => {
@@ -997,6 +1045,8 @@ export default function VoiceChat() {
   // Live mode document handlers
   const handleLiveDocUpload = (files: FileList) => {
     if (liveDocumentRequest && files.length > 0) {
+      const fileNames = Array.from(files).map(f => f.name);
+      
       // Add files to explorer
       Array.from(files).forEach(file => {
         const fileId = addUploadedFile({
@@ -1013,14 +1063,35 @@ export default function VoiceChat() {
       
       setLiveDocResponseStatus('uploaded');
       
-      // Send response to backend via voice (simulated user response)
-      // The user would naturally say "yes I have it" which triggers the agent
+      // CRITICAL: Notify the agent that user ACTUALLY uploaded a document (via card)
+      // Use specific phrasing so agent knows to call handle_evidence_response with document_uploaded=True
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        const docType = liveDocumentRequest.description || liveDocumentRequest.id;
+        const msg = `[DOCUMENT UPLOADED] I have uploaded the ${docType} via the upload card. The file is: ${fileNames.join(', ')}.`;
+        addDebugLog('DOC_UPLOAD_MSG', `Sending to agent: "${msg}"`);
+        wsRef.current.send(JSON.stringify({ type: 'text', content: msg }));
+      }
+      
+      // Clear document request after sending
+      setTimeout(() => {
+        setLiveDocumentRequest(null);
+        setLiveDocResponseStatus('pending');
+      }, 1500);
     }
   };
 
   const handleLiveDontHave = () => {
     if (liveDocumentRequest) {
       setLiveDocResponseStatus('dont-have');
+      
+      // CRITICAL: Notify the agent that user doesn't have this document
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        const docType = liveDocumentRequest.description || liveDocumentRequest.id;
+        const msg = `I don't have the ${docType}. I cannot provide this document.`;
+        addDebugLog('DOC_DONTHAVE_MSG', `Sending to agent: "${msg}"`);
+        wsRef.current.send(JSON.stringify({ type: 'text', content: msg }));
+      }
+      
       // Clear after a moment so the next request can be shown
       setTimeout(() => {
         setLiveDocumentRequest(null);
@@ -1032,6 +1103,15 @@ export default function VoiceChat() {
   const handleLiveLater = () => {
     if (liveDocumentRequest) {
       setLiveDocResponseStatus('later');
+      
+      // CRITICAL: Notify the agent that user will provide later
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        const docType = liveDocumentRequest.description || liveDocumentRequest.id;
+        const msg = `I'll provide the ${docType} later. I don't have it with me right now.`;
+        addDebugLog('DOC_LATER_MSG', `Sending to agent: "${msg}"`);
+        wsRef.current.send(JSON.stringify({ type: 'text', content: msg }));
+      }
+      
       // Clear after a moment so the next request can be shown
       setTimeout(() => {
         setLiveDocumentRequest(null);
@@ -1340,6 +1420,12 @@ export default function VoiceChat() {
                 )}
               </div>
             ))}
+            {/* Debug: Current card state */}
+            {mode === 'live' && (
+              <div className="text-[10px] bg-blue-50 border border-blue-200 rounded px-2 py-1 mx-2">
+                Card state: {liveDocumentRequest ? `✅ ${liveDocumentRequest.id}` : '❌ null'}
+              </div>
+            )}
             {/* Live Mode Document Request Card */}
             {mode === 'live' && liveDocumentRequest && (
               <div className="flex justify-start">
@@ -1452,6 +1538,41 @@ export default function VoiceChat() {
         </div>
       )}
 
+      {/* Debug Panel */}
+      {mode === 'live' && (
+        <div className="mx-4 mb-2">
+          <button 
+            onClick={() => setShowDebug(!showDebug)}
+            className="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-1"
+          >
+            {showDebug ? '▼' : '▶'} Debug ({debugLogs.length})
+          </button>
+          {showDebug && (
+            <div className="mt-1 p-2 bg-gray-900 rounded-lg max-h-40 overflow-y-auto font-mono text-[10px]">
+              {debugLogs.length === 0 ? (
+                <div className="text-gray-500">No logs yet. Start a session to see debug info.</div>
+              ) : (
+                debugLogs.map((log, i) => (
+                  <div key={i} className="text-gray-300 mb-1">
+                    <span className="text-gray-500">{log.time}</span>
+                    {' '}
+                    <span className={`font-bold ${
+                      log.type === 'SET_DOC_REQUEST' ? 'text-green-400' :
+                      log.type === 'FIRST_REQUIRED' ? 'text-yellow-400' :
+                      log.type === 'LIVE_UPDATE' ? 'text-blue-400' :
+                      log.type === 'EVIDENCE_ITEMS' ? 'text-purple-400' :
+                      'text-gray-400'
+                    }`}>[{log.type}]</span>
+                    {' '}
+                    <span className="text-white whitespace-pre-wrap">{log.data}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Controls - Same UI for both modes */}
       <div className="flex-shrink-0 p-4 border-t border-gray-200">
         <div className="flex flex-col items-center gap-3">
@@ -1459,13 +1580,15 @@ export default function VoiceChat() {
           <button
             onClick={mode === 'mock' ? handleToggleListening : toggleLiveSession}
             className={`relative w-12 h-12 border-2 rounded-lg flex items-center justify-center transition-all ${
-              isSessionActive
-                ? 'bg-true-turquoise border-true-turquoise'
-                : 'bg-white border-gray-300 hover:border-gray-400'
+              liveDocumentRequest && mode === 'live'
+                ? 'bg-amber-400 border-amber-400'  // Waiting for document input
+                : isSessionActive
+                  ? 'bg-true-turquoise border-true-turquoise'
+                  : 'bg-white border-gray-300 hover:border-gray-400'
             }`}
           >
-            {/* Pulse rings when active */}
-            {isSessionActive && (
+            {/* Pulse rings when active (not when waiting for document) */}
+            {isSessionActive && !liveDocumentRequest && (
               <>
                 <div className="absolute inset-0 border-2 border-true-turquoise rounded-lg animate-pulse-ring"></div>
                 <div className="absolute inset-0 border-2 border-true-turquoise rounded-lg animate-pulse-ring" style={{ animationDelay: '1s' }}></div>
@@ -1473,15 +1596,17 @@ export default function VoiceChat() {
             )}
 
             {/* Icon */}
-            {isSessionActive ? (
+            {liveDocumentRequest && mode === 'live' ? (
+              <Pause className="w-5 h-5 text-white relative z-10" />
+            ) : isSessionActive ? (
               <MicOff className="w-5 h-5 text-white relative z-10" />
             ) : (
               <Mic className="w-5 h-5 text-offblack relative z-10" />
             )}
           </button>
 
-          {/* Equalizer when active */}
-          {isSessionActive && (
+          {/* Equalizer when active (not when waiting for document) */}
+          {isSessionActive && !liveDocumentRequest && (
             <div className="flex items-center gap-1 h-4">
               {[...Array(5)].map((_, i) => (
                 <div
@@ -1497,7 +1622,11 @@ export default function VoiceChat() {
 
           {/* Status text */}
           <p className="text-[10px] text-gray-500">
-            {isSessionActive ? 'Click to end session' : 'Click to begin'}
+            {liveDocumentRequest && mode === 'live' 
+              ? 'Waiting for document' 
+              : isSessionActive 
+                ? 'Click to end session' 
+                : 'Click to begin'}
           </p>
         </div>
       </div>

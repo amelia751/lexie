@@ -8,7 +8,7 @@ All agents read/write to this hub.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 import json
 
 
@@ -181,6 +181,32 @@ class EvidenceHub:
         self.facts = CaseFacts()
         self._case_type: Optional[str] = None
         self._session_id: Optional[str] = None
+        self._currently_requested: Optional[str] = None  # ID of document being requested
+    
+    def set_currently_requested(self, item: Optional[Union[str, 'EvidenceItem']]) -> None:
+        """Set the document currently being requested (shows upload card).
+        
+        Args:
+            item: Either an EvidenceItem object or a string item ID
+        """
+        if item is None:
+            self._currently_requested = None
+        elif isinstance(item, str):
+            self._currently_requested = item
+        elif hasattr(item, 'id'):
+            self._currently_requested = item.id
+        else:
+            self._currently_requested = str(item)
+    
+    def get_currently_requested(self) -> Optional[EvidenceItem]:
+        """Get the document currently being requested."""
+        if not self._currently_requested:
+            return None
+        return self.get_evidence_item(self._currently_requested)
+    
+    def clear_currently_requested(self) -> None:
+        """Clear the current document request."""
+        self._currently_requested = None
     
     def set_session(self, session_id: str) -> None:
         """Set the current session ID."""
@@ -466,6 +492,7 @@ class EvidenceHub:
         self.facts = CaseFacts()
         self._case_type = None
         self._session_id = None
+        self._currently_requested = None
 
 
 # Singleton instance
