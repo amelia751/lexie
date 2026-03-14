@@ -413,10 +413,12 @@ class GeminiLiveService:
                                         if analysis_result and analysis_result.get("status") == "success":
                                             analysis_summary = f"\n\nEvidence Agent Analysis:\n{analysis_result.get('analysis', 'No details available.')}"
                                         
-                                        # Set document processing window - ignore interrupts for 15 seconds
+                                        # Set document processing window - enforce single response for 15 seconds
+                                        # This prevents the "2 voices" issue
                                         import time
                                         turn_state["doc_processing_until"] = time.time() + 15
-                                        turn_state["doc_turn_completed"] = False
+                                        turn_state["doc_speech_started"] = False
+                                        turn_state["doc_speech_finished"] = False
                                         logger.info(f"[INTERCEPT] Doc processing window started (15s)")
                                         
                                         # Tell the agent to use the analysis results - BE VERY STRICT
@@ -480,8 +482,9 @@ Evidence Agent has processed this document.{analysis_summary}
                     "response_text_sent": "",  # Track what text we've already sent
                     "last_state_hash": "",  # For deduplicating live_updates
                     "interrupted_at_msg": -1,  # Track which turn was interrupted
-                    "doc_processing_until": 0,  # Timestamp until which we ignore interrupts (doc upload)
-                    "doc_turn_completed": False,  # Whether we've completed a turn for current doc
+                    "doc_processing_until": 0,  # Timestamp until which we enforce single response
+                    "doc_speech_started": False,  # True when agent starts speaking during doc processing
+                    "doc_speech_finished": False,  # True when agent finishes speaking (blocks 2nd voice)
                 }
                 
                 def get_state_hash(state: dict) -> str:
@@ -565,13 +568,14 @@ Evidence Agent has processed this document.{analysis_summary}
                                 # But still process tool calls and turn_complete
                                 pass  # Will be checked below for each event type
                             
-                            # During document processing, block additional audio/transcripts after first turn_complete
+                            # Block SECOND voice during doc processing
+                            # Allow speech until it finishes, then block any NEW speech
                             import time
-                            if time.time() < turn_state["doc_processing_until"] and turn_state["doc_turn_completed"]:
-                                # We've already completed a turn for this doc - skip audio/transcripts
-                                # (This prevents the "second voice" issue)
+                            in_doc_window = time.time() < turn_state["doc_processing_until"]
+                            if in_doc_window and turn_state["doc_speech_finished"]:
+                                # Agent already finished speaking once - block second voice
                                 if event.content or event.output_transcription:
-                                    logger.debug(f"[BLOCKED] Audio/transcript after doc turn completed")
+                                    logger.info(f"[BLOCKED] Second voice during doc processing")
                                     continue
                             
                             # Handle audio content (only send audio, not text from content)
@@ -603,6 +607,10 @@ Evidence Agent has processed this document.{analysis_summary}
                                 current_msg = turn_state["user_msg_count"]
                                 response_text = event.output_transcription.text
                                 resp_msg = turn_state["response_for_msg"]
+                                is_finished = getattr(event.output_transcription, 'finished', True)
+                                
+                                # Track doc speech state
+                                in_doc_window = time.time() < turn_state["doc_processing_until"]
                                 
                                 # Check if this is a NEW response for a NEW turn (after any interruption)
                                 if resp_msg < current_msg:
@@ -611,12 +619,22 @@ Evidence Agent has processed this document.{analysis_summary}
                                     turn_state["response_text_sent"] = response_text
                                     logger.info(f"[New Response] Starting response for turn {current_msg}")
                                     
+                                    # Mark speech as started during doc processing
+                                    if in_doc_window:
+                                        turn_state["doc_speech_started"] = True
+                                    
                                     await websocket.send_json({
                                         "type": "transcript",
                                         "role": "assistant",
                                         "content": response_text,
-                                        "partial": not getattr(event.output_transcription, 'finished', True),
+                                        "partial": not is_finished,
                                     })
+                                    
+                                    # Mark speech as finished if this is the final transcript
+                                    if is_finished and in_doc_window:
+                                        turn_state["doc_speech_finished"] = True
+                                        logger.info(f"[Doc Processing] Speech finished, blocking additional voices")
+                                        
                                 elif resp_msg <= turn_state["interrupted_at_msg"]:
                                     # This is from an interrupted turn - skip it
                                     continue
@@ -630,8 +648,13 @@ Evidence Agent has processed this document.{analysis_summary}
                                             "type": "transcript",
                                             "role": "assistant",
                                             "content": response_text,
-                                            "partial": not getattr(event.output_transcription, 'finished', True),
+                                            "partial": not is_finished,
                                         })
+                                        
+                                        # Mark speech as finished if this is the final transcript
+                                        if is_finished and in_doc_window:
+                                            turn_state["doc_speech_finished"] = True
+                                            logger.info(f"[Doc Processing] Speech finished, blocking additional voices")
                                 # else: This is a duplicate/alternative response - skip it
                             
                             # Handle user speech transcription
@@ -653,24 +676,11 @@ Evidence Agent has processed this document.{analysis_summary}
                             # Turn complete notification - ONLY SEND ONCE per user message
                             # ADK may fire turn_complete multiple times (after tool calls, after speech)
                             if event.turn_complete:
-                                import time
                                 current_msg = turn_state["user_msg_count"]
-                                
-                                # During document processing, only allow ONE turn_complete
-                                in_doc_window = time.time() < turn_state["doc_processing_until"]
-                                if in_doc_window and turn_state["doc_turn_completed"]:
-                                    # Already completed a turn during doc processing - skip
-                                    logger.info(f"[IGNORED] Extra turn_complete during doc processing")
-                                    continue
                                 
                                 # Only send if we haven't sent turn_complete for this message yet
                                 if turn_state["last_turn_sent"] < current_msg:
                                     turn_state["last_turn_sent"] = current_msg
-                                    
-                                    # Mark doc turn as completed
-                                    if in_doc_window:
-                                        turn_state["doc_turn_completed"] = True
-                                        logger.info(f"[Doc Processing] First turn complete, ignoring subsequent")
                                     
                                     await websocket.send_json({
                                         "type": "turn_complete",
