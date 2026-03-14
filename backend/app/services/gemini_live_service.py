@@ -66,48 +66,86 @@ def get_live_data_snapshot() -> dict:
     source_files = facts.get("source_files", {})
     
     timeline_events = []
+    incident_date = incident.get("date", "Unknown")
+    
+    # Incident event
     if incident.get("date"):
         timeline_events.append({
             "id": "incident-1",
-            "date": incident.get("date", "Unknown"),
+            "date": incident_date,
             "event": "Workplace Injury",
-            "description": incident.get("description", ""),
+            "description": incident.get("description", "Fall from scaffolding at construction site"),
             "category": "incident",
             "source": "Incident Report",
-            "sourceFileId": source_files.get("incident"),  # Links to file in explorer
+            "sourceFileId": source_files.get("incident"),
         })
     
-    # Build medical records
+    # Medical treatment timeline (from injuries list)
+    injuries_list = injuries.get("list", [])
+    if injuries_list:
+        injury_text = ", ".join(injuries_list[:3])  # First 3 injuries
+        timeline_events.append({
+            "id": "medical-er-1",
+            "date": incident_date,
+            "event": "Emergency Room Visit",
+            "description": f"Treated for: {injury_text}",
+            "category": "medical",
+            "source": "ER Records",
+            "sourceFileId": source_files.get("medical"),
+        })
+    
+    # Build medical records from injuries
     medical_records = []
+    for i, injury in enumerate(injuries_list):
+        # Assign ICD-10 codes based on common injury types
+        icd10 = "S99.9"  # Default
+        if "fracture" in injury.lower():
+            icd10 = "S52.501A"
+        elif "concussion" in injury.lower():
+            icd10 = "S06.0X0A"
+        elif "herniation" in injury.lower() or "disc" in injury.lower():
+            icd10 = "M51.16"
+        elif "strain" in injury.lower() or "sprain" in injury.lower():
+            icd10 = "S39.012A"
+        elif "contusion" in injury.lower():
+            icd10 = "S70.01XA"
+        elif "laceration" in injury.lower():
+            icd10 = "S01.81XA"
+        
+        medical_records.append({
+            "id": f"diagnosis-{i+1}",
+            "icd10": icd10,
+            "diagnosis": injury,
+            "severity": injuries.get("severity", "serious"),
+            "status": "Under treatment",
+        })
+    
+    # Add medical expenses timeline if exists
     medical_expense = medical.get("expenses")
     if medical_expense:
         timeline_events.append({
-            "id": "medical-1",
-            "date": incident.get("date", "Unknown"),
-            "event": "Medical Treatment",
-            "description": f"Medical expenses: ${medical_expense:,}",
-            "category": "medical",
-            "source": "Medical Records",
-            "sourceFileId": source_files.get("medical"),  # Links to file in explorer
-        })
-        medical_records.append({
-            "id": "medical-1",
-            "date": incident.get("date", "Unknown"),
-            "provider": "Medical Treatment",
-            "service": "Total Medical Expenses",
-            "amount": medical_expense,
+            "id": "billing-1",
+            "date": incident_date,
+            "event": "Medical Bills",
+            "description": f"Total billed: ${medical_expense:,.0f}",
+            "category": "billing",
+            "source": "Medical Bills",
+            "sourceFileId": source_files.get("billing"),
         })
     
     # Build damages estimate
     damages_estimate = {}
-    if damages.get("total_estimate"):
-        settlement = damages.get("settlement_range", {})
+    settlement = damages.get("settlement_range", {})
+    if damages.get("total_estimate") or damages.get("economic") or settlement.get("low"):
         damages_estimate = {
-            "pastMedical": medical.get("expenses"),
-            "futureMedical": medical.get("future_estimate"),
-            "lostWages": employment.get("lost_wages"),
-            "settlementLow": settlement.get("low"),
-            "settlementHigh": settlement.get("high"),
+            "pastMedical": medical.get("expenses") or 0,
+            "futureMedical": medical.get("future_estimate") or 0,
+            "lostWages": employment.get("lost_wages") or 0,
+            "economicDamages": damages.get("economic") or 0,
+            "nonEconomicDamages": damages.get("non_economic") or 0,
+            "totalEstimate": damages.get("total_estimate") or 0,
+            "settlementLow": settlement.get("low") or 0,
+            "settlementHigh": settlement.get("high") or 0,
         }
     
     # Get the currently requested document (if any)
@@ -419,18 +457,32 @@ class GeminiLiveService:
                                         if analysis_result and analysis_result.get("status") == "success":
                                             analysis_summary = f"\n\nEvidence Agent Analysis:\n{analysis_result.get('analysis', 'No details available.')}"
                                         
-                                        # Set document processing window - enforce single response for 15 seconds
-                                        # This prevents the "2 voices" issue
+                                        # Set document processing window - short window to prevent duplicate voices
+                                        # 5 seconds is enough to ignore false interrupts from background noise
+                                        # Longer windows block legitimate follow-up speech (transitions)
                                         import time
-                                        turn_state["doc_processing_until"] = time.time() + 15
+                                        turn_state["doc_processing_until"] = time.time() + 5
                                         turn_state["doc_speech_started"] = False
                                         turn_state["doc_speech_finished"] = False
-                                        logger.info(f"[INTERCEPT] Doc processing window started (15s)")
+                                        logger.info(f"[INTERCEPT] Doc processing window started (5s)")
                                         
                                         # Tell the agent to use the analysis results - BE VERY STRICT
-                                        content = f"""[DOCUMENT UPLOADED] {doc_type}
+                                        # Try to extract billing amount from the document content
+                                        billing_hint = ""
+                                        billing_match = re.search(r'TOTAL[:\s]*\$?([\d,]+(?:\.\d{2})?)', content, re.IGNORECASE)
+                                        if billing_match:
+                                            billing_amount = billing_match.group(1).replace(',', '')
+                                            billing_hint = f"\n\n⚠️ BILLING DETECTED - TOTAL: ${billing_amount}\nYou MUST call: update_case_facts('medical_expenses', {billing_amount})"
+                                            # Also save it directly
+                                            try:
+                                                evidence_hub.update_fact("medical_expenses", float(billing_amount))
+                                                logger.info(f"[INTERCEPT] Extracted and saved medical_expenses: {billing_amount}")
+                                            except:
+                                                pass
+                                        
+                                        agent_message = f"""[DOCUMENT UPLOADED] {doc_type}
 
-Evidence Agent has processed this document.{analysis_summary}
+Evidence Agent has processed this document.{analysis_summary}{billing_hint}
 
 ⚠️ CRITICAL - RESPOND EXACTLY ONCE:
 1. DO NOT call handle_evidence_response() - already done!
@@ -439,12 +491,20 @@ Evidence Agent has processed this document.{analysis_summary}
 4. STOP after speaking - do NOT continue without user input
 5. DO NOT call request_evidence_upload() until user confirms"""
                                     
-                                    live_request_queue.send_content(
-                                        types.Content(
-                                            role="user",
-                                            parts=[types.Part.from_text(text=content)]
+                                        live_request_queue.send_content(
+                                            types.Content(
+                                                role="user",
+                                                parts=[types.Part.from_text(text=agent_message)]
+                                            )
                                         )
-                                    )
+                                    else:
+                                        # Regular text message - send directly to agent
+                                        live_request_queue.send_content(
+                                            types.Content(
+                                                role="user",
+                                                parts=[types.Part.from_text(text=content)]
+                                            )
+                                        )
                                     
                                 elif msg_type == "audio":
                                     # Audio input - increment message counter
@@ -574,15 +634,27 @@ Evidence Agent has processed this document.{analysis_summary}
                                 # But still process tool calls and turn_complete
                                 pass  # Will be checked below for each event type
                             
-                            # Block SECOND voice during doc processing
-                            # Allow speech until it finishes, then block any NEW speech
+                            # Only block duplicate/overlapping voices during doc processing
+                            # The "2 voices" issue happens when a false interrupt triggers a NEW response
+                            # We should NOT block continuation speech after tool calls (same response)
                             import time
                             in_doc_window = time.time() < turn_state["doc_processing_until"]
+                            
+                            # Only block if:
+                            # 1. We're in doc processing window
+                            # 2. Agent already finished speaking once
+                            # 3. This appears to be a NEW response (not continuation)
                             if in_doc_window and turn_state["doc_speech_finished"]:
-                                # Agent already finished speaking once - block second voice
-                                if event.content or event.output_transcription:
-                                    logger.info(f"[BLOCKED] Second voice during doc processing")
-                                    continue
+                                if event.output_transcription:
+                                    # Check if this is a NEW response starting fresh
+                                    # A new response would have different content than what we sent
+                                    text = event.output_transcription.text
+                                    # If this is truly new content (not building on existing), it's a duplicate
+                                    if not text.startswith(turn_state["response_text_sent"]):
+                                        # This is a completely new response - likely from false interrupt
+                                        logger.info(f"[BLOCKED] New duplicate response during doc processing")
+                                        continue
+                                    # Otherwise it's continuation - allow it
                             
                             # Handle audio content (only send audio, not text from content)
                             # Only send audio if we're actively responding to this turn AND not interrupted
