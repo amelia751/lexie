@@ -354,6 +354,12 @@ class GeminiLiveService:
                                     turn_state["user_msg_count"] += 1
                                     content = msg.get("content", "")
                                     
+                                    # Reset doc_speech flags for non-document text (user confirmations, etc.)
+                                    # This ensures the agent can respond to user's verbal feedback
+                                    if not content.startswith("[DOCUMENT UPLOADED]"):
+                                        turn_state["doc_speech_started"] = False
+                                        turn_state["doc_speech_finished"] = False
+                                    
                                     # INTERCEPT: Detect [DOCUMENT UPLOADED] and auto-process
                                     if content.startswith("[DOCUMENT UPLOADED]"):
                                         logger.info(f"[INTERCEPT] Document upload detected")
@@ -665,6 +671,11 @@ Evidence Agent has processed this document.{analysis_summary}
                                 if is_finished:
                                     turn_state["user_msg_count"] += 1
                                     logger.info(f"[User Speech Complete] msg #{turn_state['user_msg_count']}")
+                                    
+                                    # Reset doc_speech flags - allow agent to respond to this new input
+                                    # This ensures verbal input (like "incorrect") gets a proper response
+                                    turn_state["doc_speech_started"] = False
+                                    turn_state["doc_speech_finished"] = False
                                 
                                 await websocket.send_json({
                                     "type": "transcript",
