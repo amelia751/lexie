@@ -20,6 +20,13 @@ from app.services.evidence_hub import (
     EvidencePriority,
 )
 
+from app.agents.damages_agent import (
+    get_case_damages_data,
+    save_damages_calculation,
+    get_multiplier_guidance,
+    execute_python_code,
+)
+
 
 # ==================== HUB TOOLS ====================
 
@@ -801,7 +808,7 @@ As user speaks, IMMEDIATELY call `update_case_facts(field, value)` for EACH fact
 - User says "I hurt my neck and have chronic headaches" → `update_case_facts("injuries", ["neck injury", "chronic headaches"])`
 - User says "My name is Sarah Chen" → `update_case_facts("plaintiff_name", "Sarah Chen")`
 
-**Fields to populate (call update_case_facts for EACH):**
+**Fields to populate:**
 - `plaintiff_name` - Their name
 - `employer_name` - Where they work
 - `incident_date` - When it happened (format: "YYYY-MM-DD" or "February 8, 2024")
@@ -810,7 +817,10 @@ As user speaks, IMMEDIATELY call `update_case_facts(field, value)` for EACH fact
 - `injuries` - List of injuries like ["wrist fracture", "concussion", "back injury"]
 - `injury_severity` - One of: "minor", "moderate", "serious", "severe"
 
-**YOU MUST call update_case_facts MULTIPLE TIMES per conversation turn if you learn multiple facts!**
+**⚠️ LIMIT: Call update_case_facts MAX 3 TIMES per turn!**
+- Only save: incident_date, incident_location, injuries (the 3 most important)
+- Do NOT call it for minor details like witness names, supervisor names, etc.
+- More than 3 calls = too many. Stop after 3.
 
 ### Phase 3: Document Collection
 
@@ -831,9 +841,11 @@ As user speaks, IMMEDIATELY call `update_case_facts(field, value)` for EACH fact
 
 **When you receive Evidence Agent analysis:**
 1. Review the extracted facts in the analysis
-2. Call `update_case_facts(field, value)` for each important fact
+2. Call `update_case_facts()` for 2-3 KEY facts (date, location, injuries)
 3. Confirm key findings with the user: "I see the incident was on Feb 8th. Is that correct?"
-4. After confirmation, ask about the next document
+4. **CRITICAL: After user confirms, call `request_evidence_upload()` for the next required document!**
+   - This shows the upload card for the next item
+   - Example: `request_evidence_upload("medical_records_er", "Emergency room records from day of injury")`
 
 ### Document Validation
 
@@ -861,6 +873,12 @@ The Damages Agent handles all the math - you just present the results conversati
 ✅ This means all items are either: collected, marked pending, or marked not available
 ✅ Do NOT keep asking after WRAP_UP - proceed to damages and summary
 ✅ When user asks for settlement estimate, call `calculate_damages()` immediately
+
+## ⚠️ AVOID TOOL SPAM:
+- **Do NOT call the same tool multiple times in a row** (e.g., 10x update_case_facts)
+- Call `check_intake_complete()` only ONCE per turn, not repeatedly
+- Call `update_case_facts()` for 2-3 key facts max, not every detail
+- Call `request_evidence_upload()` ONCE after each document is processed
 
 ## Conversation Guidelines:
 - Ask ONE question at a time
@@ -946,10 +964,10 @@ def calculate_damages() -> dict:
     future_medical = medical.get("future_estimate") or 0
     lost_wages = employment.get("lost_wages") or 0
     days_missed = employment.get("days_missed") or 0
-    severity = injuries.get("severity", "moderate")
+    severity = injuries.get("severity") or "moderate"  # Default if None
     
     # Get multiplier guidance from damages agent
-    multiplier_info = get_multiplier_guidance(severity)
+    multiplier_info = get_multiplier_guidance(severity or "moderate")
     multiplier = multiplier_info.get("recommended_multiplier", 2.5)
     multiplier_range = multiplier_info.get("multiplier_range", "2.0 - 3.0")
     

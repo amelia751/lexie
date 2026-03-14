@@ -38,21 +38,33 @@ export default function LiveTimelineView() {
   };
 
   const handleViewSource = (event: typeof timelineEvents[0]) => {
-    // If we have a sourceFileId, highlight it in the file explorer
-    if (event.sourceFileId) {
-      highlightFile(event.sourceFileId);
-      return;
+    // First, try to find the file by sourceFileId
+    let matchingFile = event.sourceFileId 
+      ? uploadedFiles.find(f => f.id === event.sourceFileId)
+      : null;
+    
+    // If no sourceFileId, try to find a matching file by source name
+    if (!matchingFile) {
+      const sourceName = getSourceName(event).toLowerCase();
+      matchingFile = uploadedFiles.find(f => 
+        f.name.toLowerCase().includes(sourceName.replace(' ', '-').replace(' ', '_')) ||
+        sourceName.includes(f.name.toLowerCase().split('.')[0])
+      ) || null;
     }
     
-    // Otherwise, try to find a matching file by source name
-    const sourceName = getSourceName(event).toLowerCase();
-    const matchingFile = uploadedFiles.find(f => 
-      f.name.toLowerCase().includes(sourceName.replace(' ', '-').replace(' ', '_')) ||
-      sourceName.includes(f.name.toLowerCase().split('.')[0])
-    );
-    
+    // If we found a file, open it in viewer and highlight in explorer
     if (matchingFile) {
       highlightFile(matchingFile.id);
+      
+      // If the file has a URL, open it in the viewer
+      if (matchingFile.url) {
+        const isImage = matchingFile.name.match(/\.(png|jpg|jpeg|gif|webp)$/i);
+        setViewingEvidence({
+          source: matchingFile.name,
+          url: matchingFile.url,
+          type: isImage ? 'image' : 'pdf',
+        });
+      }
       return;
     }
     

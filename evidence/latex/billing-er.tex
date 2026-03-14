@@ -1,0 +1,158 @@
+\documentclass[11pt]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{fancyhdr}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{longtable}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Account: RGH-2026-081547}
+\lhead{Riverside General Hospital}
+\rfoot{Page \thepage}
+
+\definecolor{medblue}{RGB}{0,82,147}
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries\color{medblue} RIVERSIDE GENERAL HOSPITAL}\\[0.3em]
+{\small 500 Medical Center Drive, Riverside, CA 92501}\\
+{\small Patient Accounts: (951) 555-7100}\\[1em]
+{\LARGE\bfseries ITEMIZED BILLING STATEMENT}
+\end{center}
+
+\vspace{0.5em}
+\hrule height 2pt
+\vspace{1em}
+
+\section*{PATIENT \& ACCOUNT INFORMATION}
+
+\begin{tabular}{@{}p{4cm}p{5cm}p{3.5cm}p{4cm}@{}}
+\textbf{Patient Name:} & Maria Elena Santos & \textbf{Account \#:} & RGH-2026-081547 \\
+\textbf{Date of Service:} & February 8, 2026 & \textbf{Statement Date:} & February 15, 2026 \\
+\textbf{Insurance:} & Hartford Workers Comp & \textbf{Claim \#:} & WC-CA-2026-0892 \\
+\end{tabular}
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\section*{EMERGENCY DEPARTMENT CHARGES}
+
+\begin{longtable}{@{}p{2cm}p{6cm}p{2cm}p{2cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{CPT Code} & \textbf{ICD-10} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/08/2026 & Emergency Dept Visit - Level 5 (Critical) & 99285 & S52.501A & \$2,850.00 \\
+02/08/2026 & EMS Ambulance Transport & A0427 & S52.501A & \$1,450.00 \\
+02/08/2026 & Trauma Team Activation & 99291 & S52.501A & \$3,200.00 \\
+02/08/2026 & Conscious Sedation - First 30 min & 99151 & S52.501A & \$650.00 \\
+02/08/2026 & Conscious Sedation - Additional 15 min & 99153 & S52.501A & \$325.00 \\
+\midrule
+\multicolumn{4}{r}{\textbf{Subtotal - Emergency Services:}} & \textbf{\$8,475.00} \\
+\bottomrule
+\end{longtable}
+
+\section*{DIAGNOSTIC IMAGING}
+
+\begin{longtable}{@{}p{2cm}p{6cm}p{2cm}p{2cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{CPT Code} & \textbf{ICD-10} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/08/2026 & CT Head w/o Contrast & 70450 & S06.0X0A & \$1,875.00 \\
+02/08/2026 & CT Cervical Spine w/o Contrast & 72125 & S13.4XXA & \$1,650.00 \\
+02/08/2026 & X-Ray Right Wrist - 3 Views & 73110 & S52.501A & \$425.00 \\
+02/08/2026 & X-Ray Lumbar Spine - 4 Views & 72110 & S39.012A & \$485.00 \\
+02/08/2026 & Post-Reduction X-Ray Right Wrist & 73110 & S52.501A & \$425.00 \\
+\midrule
+\multicolumn{4}{r}{\textbf{Subtotal - Imaging:}} & \textbf{\$4,860.00} \\
+\bottomrule
+\end{longtable}
+
+\section*{PROCEDURES}
+
+\begin{longtable}{@{}p{2cm}p{6cm}p{2cm}p{2cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{CPT Code} & \textbf{ICD-10} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/08/2026 & Closed Treatment Distal Radius Fracture & 25605 & S52.501A & \$2,400.00 \\
+02/08/2026 & Application Sugar-Tong Splint & 29125 & S52.501A & \$385.00 \\
+02/08/2026 & Laceration Repair - Simple 3cm & 12002 & S01.81XA & \$475.00 \\
+02/08/2026 & IV Therapy - Initial Hour & 96365 & S52.501A & \$285.00 \\
+\midrule
+\multicolumn{4}{r}{\textbf{Subtotal - Procedures:}} & \textbf{\$3,545.00} \\
+\bottomrule
+\end{longtable}
+
+\section*{PHARMACY}
+
+\begin{longtable}{@{}p{2cm}p{6cm}p{2cm}p{2cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{NDC} & \textbf{Qty} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/08/2026 & Morphine Sulfate 4mg/mL IV & 00409-1176 & 2 & \$125.00 \\
+02/08/2026 & Normal Saline 1000mL IV & 00338-0049 & 1 & \$45.00 \\
+02/08/2026 & Lidocaine 1\% 10mL & 00409-4277 & 1 & \$35.00 \\
+02/08/2026 & Tetanus Toxoid 0.5mL & 49281-0800 & 1 & \$125.00 \\
+02/08/2026 & Midazolam 2mg/mL (Sedation) & 00409-2596 & 2 & \$95.00 \\
+\midrule
+\multicolumn{4}{r}{\textbf{Subtotal - Pharmacy:}} & \textbf{\$425.00} \\
+\bottomrule
+\end{longtable}
+
+\section*{SUPPLIES}
+
+\begin{longtable}{@{}p{2cm}p{8cm}p{2.5cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{Qty} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/08/2026 & Splinting Materials - Fiberglass & 1 & \$185.00 \\
+02/08/2026 & Suture Kit 4-0 Nylon & 1 & \$75.00 \\
+02/08/2026 & C-Collar (Rigid) & 1 & \$145.00 \\
+02/08/2026 & IV Start Kit & 1 & \$45.00 \\
+02/08/2026 & Wound Care Supplies & 1 & \$65.00 \\
+\midrule
+\multicolumn{3}{r}{\textbf{Subtotal - Supplies:}} & \textbf{\$515.00} \\
+\bottomrule
+\end{longtable}
+
+\vspace{1em}
+\hrule height 1.5pt
+\vspace{0.5em}
+
+\section*{ACCOUNT SUMMARY}
+
+\begin{tabular}{@{}p{10cm}r@{}}
+Emergency Department Services & \$8,475.00 \\
+Diagnostic Imaging & \$4,860.00 \\
+Procedures & \$3,545.00 \\
+Pharmacy & \$425.00 \\
+Supplies & \$515.00 \\
+\midrule
+\textbf{TOTAL CHARGES} & \textbf{\$17,820.00} \\
+\midrule
+Workers' Compensation Payment (Pending) & (\$0.00) \\
+\textbf{BALANCE DUE} & \textbf{\$17,820.00} \\
+\end{tabular}
+
+\vspace{1.5em}
+
+\textbf{Billing Status:} Submitted to Hartford Workers' Compensation - Claim \#WC-CA-2026-0892
+
+\vspace{0.5em}
+\small
+\textit{Note: This is an itemized statement for Workers' Compensation purposes. Do not pay this bill directly. All charges are being processed through your employer's workers' compensation insurance.}
+
+\end{document}

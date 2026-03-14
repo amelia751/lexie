@@ -78,6 +78,7 @@ export interface LiveUploadedFile {
   status: 'processing' | 'processed' | 'error';
   uploadedAt: string;
   errorMessage?: string;
+  url?: string; // Object URL for viewing the file
 }
 
 export type TabType = 'summary' | 'timeline' | 'damages' | 'medical' | 'evidence';

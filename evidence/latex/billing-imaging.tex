@@ -1,0 +1,119 @@
+\documentclass[11pt]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{fancyhdr}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{longtable}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Account: RDI-2026-7823}
+\lhead{Riverside Diagnostic Imaging}
+\rfoot{Page \thepage}
+
+\definecolor{medblue}{RGB}{0,82,147}
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries\color{medblue} RIVERSIDE DIAGNOSTIC IMAGING}\\[0.3em]
+{\small 450 Medical Center Drive, Riverside, CA 92501}\\
+{\small Billing: (951) 555-6500}\\[1em]
+{\LARGE\bfseries ITEMIZED BILLING STATEMENT}
+\end{center}
+
+\vspace{0.5em}
+\hrule height 2pt
+\vspace{1em}
+
+\section*{PATIENT \& ACCOUNT INFORMATION}
+
+\begin{tabular}{@{}p{4cm}p{5cm}p{3.5cm}p{4cm}@{}}
+\textbf{Patient Name:} & Maria Elena Santos & \textbf{Account \#:} & RDI-2026-7823 \\
+\textbf{Referring Physician:} & Dr. Robert Kim, MD & \textbf{Statement Date:} & March 10, 2026 \\
+\textbf{Insurance:} & Hartford Workers Comp & \textbf{Claim \#:} & WC-CA-2026-0892 \\
+\end{tabular}
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\section*{MRI STUDIES}
+
+\begin{longtable}{@{}p{2cm}p{5.5cm}p{2cm}p{2cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{CPT Code} & \textbf{ICD-10} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/12/2026 & MRI Lumbar Spine w/o Contrast & 72148 & S39.012D & \$1,850.00 \\
+02/12/2026 & MRI Lumbar Spine - Prof Interp & 72148-26 & S39.012D & \$285.00 \\
+02/12/2026 & MRI Right Wrist w/o Contrast & 73221 & S52.501D & \$1,450.00 \\
+02/12/2026 & MRI Right Wrist - Prof Interp & 73221-26 & S52.501D & \$245.00 \\
+\midrule
+\multicolumn{4}{r}{\textbf{Subtotal - MRI Studies:}} & \textbf{\$3,830.00} \\
+\bottomrule
+\end{longtable}
+
+\section*{CT STUDIES}
+
+\begin{longtable}{@{}p{2cm}p{5.5cm}p{2cm}p{2cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{CPT Code} & \textbf{ICD-10} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/28/2026 & CT Lumbar Spine w/o Contrast & 72131 & S39.012D & \$1,250.00 \\
+02/28/2026 & CT Lumbar Spine - Prof Interp & 72131-26 & S39.012D & \$195.00 \\
+02/28/2026 & 3D Reconstruction - Spine & 76376 & S39.012D & \$175.00 \\
+\midrule
+\multicolumn{4}{r}{\textbf{Subtotal - CT Studies:}} & \textbf{\$1,620.00} \\
+\bottomrule
+\end{longtable}
+
+\section*{FACILITY FEES}
+
+\begin{longtable}{@{}p{2cm}p{8cm}p{2.5cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{Code} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/12/2026 & MRI Facility Fee (2 studies) & 0612T & \$485.00 \\
+02/28/2026 & CT Facility Fee & 0634T & \$325.00 \\
+\midrule
+\multicolumn{3}{r}{\textbf{Subtotal - Facility Fees:}} & \textbf{\$810.00} \\
+\bottomrule
+\end{longtable}
+
+\vspace{1em}
+\hrule height 1.5pt
+\vspace{0.5em}
+
+\section*{ACCOUNT SUMMARY}
+
+\begin{tabular}{@{}p{10cm}r@{}}
+MRI Studies (Lumbar Spine + Right Wrist) & \$3,830.00 \\
+CT Studies (Lumbar Spine with 3D) & \$1,620.00 \\
+Facility Fees & \$810.00 \\
+\midrule
+\textbf{TOTAL CHARGES} & \textbf{\$6,260.00} \\
+\midrule
+Workers' Compensation Payment (Pending) & (\$0.00) \\
+\textbf{BALANCE DUE} & \textbf{\$6,260.00} \\
+\end{tabular}
+
+\vspace{1.5em}
+
+\textbf{Billing Status:} Submitted to Hartford Workers' Compensation - Claim \#WC-CA-2026-0892
+
+\vspace{0.5em}
+\textbf{Key Findings:}
+\begin{itemize}
+\item MRI Lumbar: L4-L5 disc herniation with mild foraminal narrowing
+\item MRI Wrist: Healing distal radius fracture with expected callus formation
+\item CT Lumbar: Confirms disc pathology, no surgical intervention indicated
+\end{itemize}
+
+\end{document}

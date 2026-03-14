@@ -464,6 +464,7 @@ class GeminiLiveService:
                     "response_for_msg": -1,  # Which msg we've started responding to
                     "response_text_sent": "",  # Track what text we've already sent
                     "last_state_hash": "",  # For deduplicating live_updates
+                    "interrupted_at_msg": -1,  # Track which turn was interrupted
                 }
                 
                 def get_state_hash(state: dict) -> str:
@@ -477,6 +478,7 @@ class GeminiLiveService:
                     doc_req = state.get('currentDocumentRequest')
                     doc_req_id = doc_req.get('id') if doc_req else None
                     facts = state.get('caseFacts', {})
+                    damages = state.get('damagesEstimate', {})
                     # Create hashable representation
                     key = (
                         evidence_status,
@@ -485,6 +487,8 @@ class GeminiLiveService:
                         facts.get('employerName'),
                         str(facts.get('injuries', [])),
                         facts.get('medicalExpenses'),
+                        damages.get('settlementLow'),
+                        damages.get('settlementHigh'),
                     )
                     return hashlib.md5(str(key).encode()).hexdigest()[:8]
                 
@@ -522,18 +526,38 @@ class GeminiLiveService:
                             
                             # CHECK INTERRUPTION FIRST - frontend needs to stop audio immediately
                             if event.interrupted:
+                                # Mark current turn as interrupted - don't send any more for this turn
+                                turn_state["interrupted_at_msg"] = turn_state["response_for_msg"]
+                                logger.info(f"[Interrupted] Turn {turn_state['response_for_msg']} interrupted")
                                 await websocket.send_json({
                                     "type": "interrupted",
                                 })
                                 # Don't send any more audio/transcripts for this event
                                 continue
                             
+                            # Skip any audio/content for an interrupted turn (events still in pipeline)
+                            if turn_state["response_for_msg"] >= 0 and turn_state["response_for_msg"] <= turn_state["interrupted_at_msg"]:
+                                # This event is from an interrupted turn - skip audio/transcript
+                                # But still process tool calls and turn_complete
+                                pass  # Will be checked below for each event type
+                            
                             # Handle audio content (only send audio, not text from content)
-                            # Only send audio if we're actively responding to this turn
+                            # Only send audio if we're actively responding to this turn AND not interrupted
                             if event.content and event.content.parts:
                                 current_msg = turn_state["user_msg_count"]
-                                # Only send audio if this is for the current response we're tracking
-                                if turn_state["response_for_msg"] == current_msg:
+                                resp_msg = turn_state["response_for_msg"]
+                                
+                                # Check if this is for the current turn
+                                # Note: response_for_msg is updated by transcript handler, so audio should follow
+                                should_send = False
+                                if resp_msg == current_msg:
+                                    # This is for the current active turn
+                                    should_send = True
+                                elif resp_msg < current_msg and resp_msg <= turn_state["interrupted_at_msg"]:
+                                    # This is from an OLD interrupted turn - skip it
+                                    should_send = False
+                                
+                                if should_send:
                                     for part in event.content.parts:
                                         # Check for inline audio data only
                                         if hasattr(part, 'inline_data') and part.inline_data:
@@ -545,12 +569,14 @@ class GeminiLiveService:
                             if event.output_transcription and event.output_transcription.text:
                                 current_msg = turn_state["user_msg_count"]
                                 response_text = event.output_transcription.text
+                                resp_msg = turn_state["response_for_msg"]
                                 
-                                # Check if this is a new response for this message
-                                if turn_state["response_for_msg"] < current_msg:
-                                    # First response for this turn - accept it
+                                # Check if this is a NEW response for a NEW turn (after any interruption)
+                                if resp_msg < current_msg:
+                                    # This is a new turn! Accept it even if previous was interrupted
                                     turn_state["response_for_msg"] = current_msg
                                     turn_state["response_text_sent"] = response_text
+                                    logger.info(f"[New Response] Starting response for turn {current_msg}")
                                     
                                     await websocket.send_json({
                                         "type": "transcript",
@@ -558,6 +584,9 @@ class GeminiLiveService:
                                         "content": response_text,
                                         "partial": not getattr(event.output_transcription, 'finished', True),
                                     })
+                                elif resp_msg <= turn_state["interrupted_at_msg"]:
+                                    # This is from an interrupted turn - skip it
+                                    continue
                                 elif response_text.startswith(turn_state["response_text_sent"]):
                                     # This is a continuation of the current response (streaming)
                                     # Only send the new part

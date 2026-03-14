@@ -145,6 +145,8 @@ export default function VoiceChat() {
   const interruptedRef = useRef(false);
   const lastAssistantContentRef = useRef("");
   const handleWsMsgRef = useRef<((event: MessageEvent) => void) | null>(null);
+  const userTurnCountRef = useRef(0);  // Tracks user turns for filtering stale responses
+  const lastAcceptedTurnRef = useRef(-1);  // Which turn we're accepting responses for
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -450,6 +452,7 @@ export default function VoiceChat() {
         // Audio data - don't queue if interrupted
         if (interruptedRef.current) return;
         event.data.arrayBuffer().then((buf) => {
+          // Double-check interruption state (may have changed during async)
           if (interruptedRef.current) return;
           audioQueueRef.current.push(buf);
           playAudio();
@@ -478,9 +481,16 @@ export default function VoiceChat() {
             return;
           }
           
-          // User speaking = clear interrupted state
+          // User speaking = new turn, clear interrupted state and increment turn
           if (role === 'user') {
+            if (!isPartial) {
+              // User finished speaking - this is a new turn
+              userTurnCountRef.current += 1;
+              lastAcceptedTurnRef.current = userTurnCountRef.current;
+            }
             interruptedRef.current = false;
+            // Clear the audio queue - we don't want old audio playing
+            audioQueueRef.current = [];
           }
           
           // Strip cumulative content from assistant transcripts
@@ -498,6 +508,8 @@ export default function VoiceChat() {
         } else if (type === 'interrupted') {
           // USER INTERRUPTED! Stop everything immediately
           interruptedRef.current = true;
+          // Clear audio queue to prevent stale audio from playing
+          audioQueueRef.current = [];
           stopAudio();
           finalizeLiveTurn('agent', true);
           setStatus('Listening...');
@@ -532,6 +544,9 @@ export default function VoiceChat() {
     setMessages([]);
     interruptedRef.current = false;
     lastAssistantContentRef.current = '';
+    userTurnCountRef.current = 0;
+    lastAcceptedTurnRef.current = -1;
+    audioQueueRef.current = [];
     setLiveDocumentRequest(null);
     setLiveDocResponseStatus('pending');
     
@@ -1051,11 +1066,14 @@ export default function VoiceChat() {
       // Add files to explorer and track IDs
       Array.from(files).forEach(file => {
         fileNames.push(file.name);
+        // Create object URL for viewing the file
+        const fileUrl = URL.createObjectURL(file);
         const fileId = addUploadedFile({
           name: file.name,
           size: formatFileSize(file.size),
           type: getFileType(file.name),
           status: 'processing',
+          url: fileUrl,
         });
         fileIds.push(fileId);
         

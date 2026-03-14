@@ -258,6 +258,9 @@ def get_multiplier_guidance(injury_severity: str) -> dict:
     Returns:
         Dict with multiplier recommendations
     """
+    # Handle None or empty input
+    if not injury_severity:
+        injury_severity = "moderate"
     severity_lower = injury_severity.lower()
     
     multipliers = {

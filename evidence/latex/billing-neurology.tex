@@ -1,0 +1,99 @@
+\documentclass[11pt]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{fancyhdr}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{longtable}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Account: RNS-2026-2284}
+\lhead{Riverside Neurology Specialists}
+\rfoot{Page \thepage}
+
+\definecolor{medblue}{RGB}{0,82,147}
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries\color{medblue} RIVERSIDE NEUROLOGY SPECIALISTS}\\[0.3em]
+{\small 1200 Medical Center Drive, Suite 200, Riverside, CA 92501}\\
+{\small Billing: (951) 555-4100}\\[1em]
+{\LARGE\bfseries ITEMIZED BILLING STATEMENT}
+\end{center}
+
+\vspace{0.5em}
+\hrule height 2pt
+\vspace{1em}
+
+\section*{PATIENT \& ACCOUNT INFORMATION}
+
+\begin{tabular}{@{}p{4cm}p{5cm}p{3.5cm}p{4cm}@{}}
+\textbf{Patient Name:} & Maria Elena Santos & \textbf{Account \#:} & RNS-2026-2284 \\
+\textbf{Treating Physician:} & Dr. Sarah Chen, MD & \textbf{Statement Date:} & March 20, 2026 \\
+\textbf{Insurance:} & Hartford Workers Comp & \textbf{Claim \#:} & WC-CA-2026-0892 \\
+\end{tabular}
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\section*{OFFICE VISITS \& CONSULTATIONS}
+
+\begin{longtable}{@{}p{2cm}p{6cm}p{2cm}p{2cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{CPT Code} & \textbf{ICD-10} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/15/2026 & New Patient Consultation - Level 5 & 99205 & S06.0X0D & \$485.00 \\
+02/15/2026 & Concussion Assessment Protocol & 96116 & S06.0X0D & \$225.00 \\
+03/01/2026 & Follow-up Visit - Level 4 & 99214 & S06.0X0D & \$275.00 \\
+03/01/2026 & Cognitive Assessment & 96132 & S06.0X0D & \$185.00 \\
+03/15/2026 & Follow-up Visit - Level 3 & 99213 & S06.0X0D & \$175.00 \\
+\midrule
+\multicolumn{4}{r}{\textbf{Subtotal - Office Visits:}} & \textbf{\$1,345.00} \\
+\bottomrule
+\end{longtable}
+
+\section*{DIAGNOSTIC TESTING}
+
+\begin{longtable}{@{}p{2cm}p{6cm}p{2cm}p{2cm}p{2.5cm}@{}}
+\toprule
+\textbf{Date} & \textbf{Description} & \textbf{CPT Code} & \textbf{ICD-10} & \textbf{Amount} \\
+\midrule
+\endhead
+
+02/15/2026 & EEG - Extended Monitoring (60 min) & 95816 & S06.0X0D & \$685.00 \\
+02/15/2026 & EEG Interpretation & 95816-26 & S06.0X0D & \$175.00 \\
+03/01/2026 & Balance \& Vestibular Testing & 92540 & S06.0X0D & \$425.00 \\
+\midrule
+\multicolumn{4}{r}{\textbf{Subtotal - Diagnostics:}} & \textbf{\$1,285.00} \\
+\bottomrule
+\end{longtable}
+
+\vspace{1em}
+\hrule height 1.5pt
+\vspace{0.5em}
+
+\section*{ACCOUNT SUMMARY}
+
+\begin{tabular}{@{}p{10cm}r@{}}
+Office Visits \& Consultations & \$1,345.00 \\
+Diagnostic Testing & \$1,285.00 \\
+\midrule
+\textbf{TOTAL CHARGES} & \textbf{\$2,630.00} \\
+\midrule
+Workers' Compensation Payment (Pending) & (\$0.00) \\
+\textbf{BALANCE DUE} & \textbf{\$2,630.00} \\
+\end{tabular}
+
+\vspace{1.5em}
+
+\textbf{Billing Status:} Submitted to Hartford Workers' Compensation - Claim \#WC-CA-2026-0892
+
+\vspace{0.5em}
+\textbf{Clinical Summary:} Post-concussive syndrome with persistent headaches and mild cognitive symptoms. EEG within normal limits. Symptoms improving with conservative management. Cleared for return to work with cognitive accommodations.
+
+\end{document}

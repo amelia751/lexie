@@ -17,7 +17,7 @@ Use these responses when speaking with Lexie during a demo:
 > "Maria Santos" (or just "Maria")
 
 ### When did this happen?
-> "February 8th, 2024" (or "about a month ago" / "early February")
+> "February 8th, 2026" (or "about a month ago" / "early February")
 
 ### Where did it happen?
 > "At a construction site in Riverside, California. It was called Riverside Medical Plaza."
@@ -69,9 +69,12 @@ Use these responses when speaking with Lexie during a demo:
 |----------|------------|--------|--------|
 | Incident Reports | 3 | PDF | ✅ Done |
 | Medical Records | 5 | PDF | ✅ Done |
+| **Medical Billing** | **5** | **PDF** | **✅ NEW** |
 | Employment Records | 2 | PDF | ✅ Done |
 | Photos | 2 | PNG | ✅ Done |
 | Workers' Comp | 2 | PDF | ✅ Done |
+
+**Note:** All dates updated to 2026 (incident date: February 8, 2026)
 
 ---
 
@@ -105,7 +108,34 @@ LaTeX source files (`.tex`) available for editing.
 
 ---
 
-## 3. Employment Records (PDF) ✅ DONE
+## 3. Medical Billing Statements (PDF) ✅ NEW
+
+Location: `evidence/`
+
+| Filename | Provider | Total | Status |
+|----------|----------|-------|--------|
+| `billing-er.pdf` | Riverside General Hospital | $17,820.00 | ✅ |
+| `billing-orthopedic.pdf` | Riverside Specialty Orthopedics | $2,845.00 | ✅ |
+| `billing-neurology.pdf` | Riverside Neurology Specialists | $2,630.00 | ✅ |
+| `billing-imaging.pdf` | Riverside Diagnostic Imaging | $6,260.00 | ✅ |
+| `billing-pt.pdf` | Riverside Center for Physical Therapy | $4,155.00 | ✅ |
+
+**Total Medical Expenses: $33,710.00**
+
+Each billing statement includes:
+- Itemized CPT codes with descriptions
+- ICD-10 diagnosis codes
+- Line-item amounts
+- Provider information
+- Workers' Comp claim reference (WC-CA-2026-0892)
+
+LaTeX source files (`.tex`) available in `evidence/latex/`.
+
+To regenerate PDFs: `cd evidence/latex && pdflatex -output-directory=.. billing-*.tex`
+
+---
+
+## 4. Employment Records (PDF) ✅ DONE
 
 Location: `evidence/`
 
