@@ -147,6 +147,8 @@ export default function VoiceChat() {
   const handleWsMsgRef = useRef<((event: MessageEvent) => void) | null>(null);
   const userTurnCountRef = useRef(0);  // Tracks user turns for filtering stale responses
   const lastAcceptedTurnRef = useRef(-1);  // Which turn we're accepting responses for
+  const waitingForDocRef = useRef(false);  // True when document card is showing - pauses audio
+  const processingDocRef = useRef(false);  // True after doc upload - pauses audio while agent processes
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -205,6 +207,11 @@ export default function VoiceChat() {
   }, [mode]);
 
   // ==================== VOICE STREAMING FUNCTIONS (LIVE MODE) ====================
+
+  // Sync waitingForDocRef with liveDocumentRequest state
+  useEffect(() => {
+    waitingForDocRef.current = liveDocumentRequest !== null;
+  }, [liveDocumentRequest]);
 
   // Stop all audio playback immediately
   const stopAudio = useCallback(() => {
@@ -505,6 +512,13 @@ export default function VoiceChat() {
           }
         } else if (type === 'turn_complete') {
           setStatus('Listening...');
+          // Resume audio after a brief grace period (prevents false interrupts from ambient noise)
+          if (processingDocRef.current) {
+            setTimeout(() => {
+              processingDocRef.current = false;
+              addDebugLog('TURN_COMPLETE', 'Audio resumed after grace period');
+            }, 1500); // 1.5s grace period before accepting audio input again
+          }
         } else if (type === 'interrupted') {
           // USER INTERRUPTED! Stop everything immediately
           interruptedRef.current = true;
@@ -547,6 +561,7 @@ export default function VoiceChat() {
     userTurnCountRef.current = 0;
     lastAcceptedTurnRef.current = -1;
     audioQueueRef.current = [];
+    processingDocRef.current = false;
     setLiveDocumentRequest(null);
     setLiveDocResponseStatus('pending');
     
@@ -606,9 +621,14 @@ export default function VoiceChat() {
         };
       });
 
-      // Stream audio to backend
+      // Stream audio to backend (paused when waiting for document or processing)
       processor.onaudioprocess = (e) => {
         if (ws.readyState !== WebSocket.OPEN) return;
+        // PAUSE audio capture when:
+        // 1. Waiting for document input (card showing)
+        // 2. Processing a recently uploaded document (agent analyzing)
+        if (waitingForDocRef.current || processingDocRef.current) return;
+        
         const input = e.inputBuffer.getChannelData(0);
         const int16 = new Int16Array(input.length);
         for (let i = 0; i < input.length; i++) {
@@ -1084,6 +1104,11 @@ export default function VoiceChat() {
       
       setLiveDocResponseStatus('uploaded');
       
+      // PAUSE audio input while document is being processed
+      // This prevents false interruptions from background noise
+      processingDocRef.current = true;
+      addDebugLog('DOC_PROCESSING', 'Audio paused while agent processes document');
+      
       // CRITICAL: Notify the agent that user ACTUALLY uploaded a document (via card)
       // Include file IDs for source tracking (so timeline events can link back to files)
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -1098,6 +1123,12 @@ export default function VoiceChat() {
         setLiveDocumentRequest(null);
         setLiveDocResponseStatus('pending');
       }, 1500);
+      
+      // Resume audio after agent has time to process and respond (5 seconds)
+      setTimeout(() => {
+        processingDocRef.current = false;
+        addDebugLog('DOC_PROCESSING_DONE', 'Audio resumed after document processing');
+      }, 5000);
     }
   };
 

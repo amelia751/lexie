@@ -413,8 +413,23 @@ class GeminiLiveService:
                                         if analysis_result and analysis_result.get("status") == "success":
                                             analysis_summary = f"\n\nEvidence Agent Analysis:\n{analysis_result.get('analysis', 'No details available.')}"
                                         
-                                        # Tell the agent to use the analysis results
-                                        content = f"User uploaded {doc_type}. Evidence Agent has analyzed it.{analysis_summary}\n\nDO NOT call handle_evidence_response again (already processed). Summarize the findings and ask if details are correct."
+                                        # Set document processing window - ignore interrupts for 15 seconds
+                                        import time
+                                        turn_state["doc_processing_until"] = time.time() + 15
+                                        turn_state["doc_turn_completed"] = False
+                                        logger.info(f"[INTERCEPT] Doc processing window started (15s)")
+                                        
+                                        # Tell the agent to use the analysis results - BE VERY STRICT
+                                        content = f"""[DOCUMENT UPLOADED] {doc_type}
+
+Evidence Agent has processed this document.{analysis_summary}
+
+⚠️ CRITICAL - RESPOND EXACTLY ONCE:
+1. DO NOT call handle_evidence_response() - already done!
+2. Call update_case_facts() for AT MOST 2 key facts
+3. SPEAK ONCE to confirm: "I see [X]. Is that correct?"
+4. STOP after speaking - do NOT continue without user input
+5. DO NOT call request_evidence_upload() until user confirms"""
                                     
                                     live_request_queue.send_content(
                                         types.Content(
@@ -465,6 +480,8 @@ class GeminiLiveService:
                     "response_text_sent": "",  # Track what text we've already sent
                     "last_state_hash": "",  # For deduplicating live_updates
                     "interrupted_at_msg": -1,  # Track which turn was interrupted
+                    "doc_processing_until": 0,  # Timestamp until which we ignore interrupts (doc upload)
+                    "doc_turn_completed": False,  # Whether we've completed a turn for current doc
                 }
                 
                 def get_state_hash(state: dict) -> str:
@@ -525,7 +542,14 @@ class GeminiLiveService:
                             # - actions: Tool actions
                             
                             # CHECK INTERRUPTION FIRST - frontend needs to stop audio immediately
+                            # BUT ignore interrupts during document processing window (false triggers)
                             if event.interrupted:
+                                import time
+                                if time.time() < turn_state["doc_processing_until"]:
+                                    # We're in document processing window - ignore this interrupt
+                                    logger.info(f"[IGNORED] Interrupt during doc processing window")
+                                    continue
+                                
                                 # Mark current turn as interrupted - don't send any more for this turn
                                 turn_state["interrupted_at_msg"] = turn_state["response_for_msg"]
                                 logger.info(f"[Interrupted] Turn {turn_state['response_for_msg']} interrupted")
@@ -540,6 +564,15 @@ class GeminiLiveService:
                                 # This event is from an interrupted turn - skip audio/transcript
                                 # But still process tool calls and turn_complete
                                 pass  # Will be checked below for each event type
+                            
+                            # During document processing, block additional audio/transcripts after first turn_complete
+                            import time
+                            if time.time() < turn_state["doc_processing_until"] and turn_state["doc_turn_completed"]:
+                                # We've already completed a turn for this doc - skip audio/transcripts
+                                # (This prevents the "second voice" issue)
+                                if event.content or event.output_transcription:
+                                    logger.debug(f"[BLOCKED] Audio/transcript after doc turn completed")
+                                    continue
                             
                             # Handle audio content (only send audio, not text from content)
                             # Only send audio if we're actively responding to this turn AND not interrupted
@@ -620,10 +653,24 @@ class GeminiLiveService:
                             # Turn complete notification - ONLY SEND ONCE per user message
                             # ADK may fire turn_complete multiple times (after tool calls, after speech)
                             if event.turn_complete:
+                                import time
                                 current_msg = turn_state["user_msg_count"]
+                                
+                                # During document processing, only allow ONE turn_complete
+                                in_doc_window = time.time() < turn_state["doc_processing_until"]
+                                if in_doc_window and turn_state["doc_turn_completed"]:
+                                    # Already completed a turn during doc processing - skip
+                                    logger.info(f"[IGNORED] Extra turn_complete during doc processing")
+                                    continue
+                                
                                 # Only send if we haven't sent turn_complete for this message yet
                                 if turn_state["last_turn_sent"] < current_msg:
                                     turn_state["last_turn_sent"] = current_msg
+                                    
+                                    # Mark doc turn as completed
+                                    if in_doc_window:
+                                        turn_state["doc_turn_completed"] = True
+                                        logger.info(f"[Doc Processing] First turn complete, ignoring subsequent")
                                     
                                     await websocket.send_json({
                                         "type": "turn_complete",
