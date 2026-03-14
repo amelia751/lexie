@@ -1045,16 +1045,19 @@ export default function VoiceChat() {
   // Live mode document handlers
   const handleLiveDocUpload = (files: FileList) => {
     if (liveDocumentRequest && files.length > 0) {
-      const fileNames = Array.from(files).map(f => f.name);
+      const fileNames: string[] = [];
+      const fileIds: string[] = [];
       
-      // Add files to explorer
+      // Add files to explorer and track IDs
       Array.from(files).forEach(file => {
+        fileNames.push(file.name);
         const fileId = addUploadedFile({
           name: file.name,
           size: formatFileSize(file.size),
           type: getFileType(file.name),
           status: 'processing',
         });
+        fileIds.push(fileId);
         
         setTimeout(() => {
           updateFileStatus(fileId, 'processed');
@@ -1064,11 +1067,11 @@ export default function VoiceChat() {
       setLiveDocResponseStatus('uploaded');
       
       // CRITICAL: Notify the agent that user ACTUALLY uploaded a document (via card)
-      // Use specific phrasing so agent knows to call handle_evidence_response with document_uploaded=True
+      // Include file IDs for source tracking (so timeline events can link back to files)
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         const docType = liveDocumentRequest.description || liveDocumentRequest.id;
-        const msg = `[DOCUMENT UPLOADED] I have uploaded the ${docType} via the upload card. The file is: ${fileNames.join(', ')}.`;
-        addDebugLog('DOC_UPLOAD_MSG', `Sending to agent: "${msg}"`);
+        const msg = `[DOCUMENT UPLOADED] I have uploaded the ${docType} via the upload card. The file is: ${fileNames.join(', ')}. [FILE_IDS: ${fileIds.join(',')}]`;
+        addDebugLog('DOC_UPLOAD_MSG', `Sending to agent: "${msg}" (fileIds: ${fileIds.join(',')})`);
         wsRef.current.send(JSON.stringify({ type: 'text', content: msg }));
       }
       

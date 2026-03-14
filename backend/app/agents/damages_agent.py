@@ -19,7 +19,7 @@ from app.services.evidence_hub import evidence_hub
 
 
 # Damages Calculator Agent Instructions
-DAMAGES_AGENT_INSTRUCTION = """You are a Damages Calculator Agent for workplace injury cases.
+DAMAGES_AGENT_INSTRUCTION = """You are a Damages Calculator Agent for personal injury cases.
 
 Your role is to compute accurate case valuations and settlement estimates.
 

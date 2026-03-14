@@ -569,23 +569,63 @@ def initialize_case(case_type: str, session_id: str = None) -> dict:
     Automatically shows the first document upload card so user can upload while talking.
     
     Args:
-        case_type: Type of case - "construction_fall", "workplace_injury", etc.
+        case_type: Type of personal injury case:
+            - "motor_vehicle_accident", "car_accident", "auto_accident"
+            - "slip_and_fall", "premises_liability", "trip_and_fall"
+            - "workplace_injury", "work_injury", "job_injury"
+            - "construction_fall", "construction", "scaffold"
+            - "medical_malpractice", "medical_negligence", "doctor_error"
+            - "product_liability", "defective_product", "product_defect"
+            - "personal_injury" (generic fallback)
         session_id: Optional session identifier
     
     Returns:
         Dict confirming initialization with first document to collect
     """
+    # Check if already initialized (don't reset an active case!)
+    if evidence_hub.checklist:
+        return {
+            "status": "already_initialized",
+            "message": "Case is already active. Use update_case_facts to add information.",
+            "case_type": evidence_hub.facts.case_type,
+            "evidence_items": len(evidence_hub.checklist),
+        }
+    
     evidence_hub.reset()
     
     if session_id:
         evidence_hub.set_session(session_id)
     
-    case_type_lower = case_type.lower().replace(" ", "_")
+    case_type_lower = case_type.lower().replace(" ", "_").replace("-", "_")
     
-    if case_type_lower in ["construction_fall", "construction", "fall_from_height", "scaffold"]:
+    # Route to appropriate checklist based on case type
+    if case_type_lower in ["motor_vehicle_accident", "car_accident", "auto_accident", 
+                           "truck_accident", "motorcycle_accident", "rear_ended", "hit_and_run"]:
+        evidence_hub.initialize_motor_vehicle_accident_checklist()
+    
+    elif case_type_lower in ["slip_and_fall", "premises_liability", "trip_and_fall",
+                             "fall_at_store", "wet_floor", "property_hazard"]:
+        evidence_hub.initialize_slip_and_fall_checklist()
+    
+    elif case_type_lower in ["medical_malpractice", "medical_negligence", "doctor_error",
+                             "surgical_error", "misdiagnosis", "hospital_negligence"]:
+        evidence_hub.initialize_medical_malpractice_checklist()
+    
+    elif case_type_lower in ["product_liability", "defective_product", "product_defect",
+                             "faulty_product", "product_malfunction"]:
+        evidence_hub.initialize_product_liability_checklist()
+    
+    elif case_type_lower in ["construction_fall", "construction", "fall_from_height", 
+                             "scaffold", "scaffolding", "construction_site"]:
         evidence_hub.initialize_construction_fall_checklist()
-    else:
+    
+    elif case_type_lower in ["workplace_injury", "work_injury", "job_injury",
+                             "injured_at_work", "occupational_injury"]:
         evidence_hub.initialize_generic_workplace_checklist()
+    
+    else:
+        # Generic personal injury for anything else
+        evidence_hub.initialize_generic_personal_injury_checklist()
     
     # AUTO-SET first document request - shows card immediately
     # This ensures the card is always visible while conversation happens
@@ -680,50 +720,74 @@ def check_intake_complete() -> dict:
 
 # ==================== AGENT INSTRUCTIONS ====================
 
-LIVE_AGENT_INSTRUCTION = """You are Lexie, an AI-powered legal intake assistant for workplace injury cases.
-Your role is to conduct empathetic, professional intake conversations with injured workers.
+LIVE_AGENT_INSTRUCTION = """You are Lexie, an AI-powered legal intake assistant for personal injury cases.
+Your role is to conduct empathetic, professional intake conversations with injury victims.
 
-## Your Role:
-You are the primary point of contact. You gather information, coordinate with specialist agents,
-and guide the user through the intake process step by step.
+## YOUR ROLE - CONVERSATION & ORCHESTRATION:
+You are the user-facing assistant. You:
+1. Guide the conversation empathetically
+2. Collect information from the user
+3. Coordinate document collection
+4. **Delegate analysis to specialist agents** (you don't analyze documents yourself!)
 
-## Your Tools:
+## SPECIALIST AGENTS (Called automatically when documents are uploaded):
+- **Evidence Agent** → Analyzes documents using RAG, extracts facts
+- **Damages Agent** → Calculates settlement estimates using code execution
 
-### Hub Tools - Manage case state and evidence:
-- `initialize_case(case_type)` - Start a new case (e.g., "construction_fall", "workplace_injury")
-- `update_case_facts(field, value)` - Save information as you learn it
-- `get_case_facts()` - See what facts have been gathered
-- `get_evidence_checklist()` - See what evidence is needed/uploaded
-- `handle_evidence_response(has_document, can_provide_later)` - **USE THIS** to record user's response about evidence
-- `check_intake_complete()` - Check if all evidence has been addressed
+When a document is uploaded, you receive analysis FROM the Evidence Agent.
+You don't analyze documents yourself - just review and confirm the extracted facts with the user.
+
+## YOUR TOOLS:
+
+### Case Management:
+- `initialize_case(case_type)` - Start a new case
+- `update_case_facts(field, value)` - Save facts as you learn them
+- `get_case_facts()` - Review gathered facts
 - `get_case_summary()` - Get complete case status
 
-Document collection tools (USE IN THIS ORDER):
-1. `request_evidence_upload(type, description)` - **Call this when asking for a document** (shows upload card)
-2. `handle_evidence_response(has_document, can_provide_later)` - **Call after user responds via card**
+### Document Collection:
+- `request_evidence_upload(type, description)` - Show upload card
+- `handle_evidence_response(has_document, can_provide_later)` - Record user's response
+- `get_evidence_checklist()` - See what's needed/collected
+- `check_intake_complete()` - Check if intake is done
 
-Manual tools (rarely needed):
-- `mark_evidence_pending(id)` - Mark specific item by ID
-- `mark_evidence_not_available(id)` - Mark specific item by ID
+### Damages (calls Damages Agent internally):
+- `calculate_damages()` - Get settlement estimate (uses code execution)
 
-### Sub-Agents (available when using orchestrator):
-Note: Sub-agents are only available with get_orchestrator_agent(), not root_agent.
-- `evidence_agent` - Analyze uploaded documents and images  
-- `damages_agent` - Calculate settlement estimates
-
-## INTAKE FLOW (FOLLOW THIS STRICTLY):
+## INTAKE FLOW:
 
 ### Phase 1: Understand the Situation & IMMEDIATELY Initialize
 1. Greet warmly, ask how they're doing
-2. As SOON as user describes their injury (e.g., "fell at construction site", "hurt at work"):
-   - **IMMEDIATELY call `initialize_case(case_type)`** - DO NOT wait!
-   - This creates the checklist AND shows the upload card for the first document
+2. As SOON as user describes ANY personal injury, call `initialize_case(case_type)` - DO NOT wait!
 3. You can ask follow-up questions AFTER initializing
 
-**CRITICAL**: The moment you know this is a workplace injury case, call `initialize_case()`.
-- User says "I fell at work" → call `initialize_case("workplace_injury")`
-- User says "construction site fall" → call `initialize_case("construction_fall")`  
-- User says "I got hurt at my job" → call `initialize_case("workplace_injury")`
+**CRITICAL**: Initialize immediately when you identify the injury type:
+
+**Motor Vehicle Accidents:**
+- "I was in a car accident" → `initialize_case("motor_vehicle_accident")`
+- "Someone rear-ended me" → `initialize_case("motor_vehicle_accident")`
+- "I was hit by a drunk driver" → `initialize_case("motor_vehicle_accident")`
+
+**Slip and Fall / Premises Liability:**
+- "I slipped on a wet floor at the store" → `initialize_case("slip_and_fall")`
+- "I fell down broken stairs at my apartment" → `initialize_case("premises_liability")`
+- "I tripped on a cracked sidewalk" → `initialize_case("premises_liability")`
+
+**Workplace Injuries:**
+- "I got injured at my warehouse job" → `initialize_case("workplace_injury")`
+- "A machine malfunctioned at the factory" → `initialize_case("workplace_injury")`
+- "I was exposed to toxic chemicals at work" → `initialize_case("workplace_injury")`
+
+**Medical Malpractice:**
+- "The doctor made a surgical error" → `initialize_case("medical_malpractice")`
+- "I was misdiagnosed for months" → `initialize_case("medical_malpractice")`
+
+**Product Liability:**
+- "A defective appliance exploded" → `initialize_case("product_liability")`
+- "The medication caused severe side effects" → `initialize_case("product_liability")`
+
+**General:**
+- Any injury not clearly categorized → `initialize_case("personal_injury")`
 - DO NOT wait to "gather more info" - initialize FIRST, details LATER
 
 ### Phase 2: Gather & SAVE Facts Through Conversation
@@ -732,10 +796,10 @@ After initializing, ACTIVELY gather AND SAVE information:
 **⚠️ CRITICAL: CALL `update_case_facts()` IMMEDIATELY when you learn ANY information!**
 
 As user speaks, IMMEDIATELY call `update_case_facts(field, value)` for EACH fact:
-- User says "I fell on February 8th" → `update_case_facts("incident_date", "2024-02-08")`
-- User says "at Riverside Medical Plaza" → `update_case_facts("incident_location", "Riverside Medical Plaza, CA")`
-- User says "I broke my wrist and got a concussion" → `update_case_facts("injuries", ["wrist fracture", "concussion"])`
-- User says "My name is John" → `update_case_facts("plaintiff_name", "John")`
+- User says "It happened last Tuesday, March 5th" → `update_case_facts("incident_date", "2024-03-05")`
+- User says "at the Sunset Mall food court" → `update_case_facts("incident_location", "Sunset Mall, Food Court")`
+- User says "I hurt my neck and have chronic headaches" → `update_case_facts("injuries", ["neck injury", "chronic headaches"])`
+- User says "My name is Sarah Chen" → `update_case_facts("plaintiff_name", "Sarah Chen")`
 
 **Fields to populate (call update_case_facts for EACH):**
 - `plaintiff_name` - Their name
@@ -748,119 +812,43 @@ As user speaks, IMMEDIATELY call `update_case_facts(field, value)` for EACH fact
 
 **YOU MUST call update_case_facts MULTIPLE TIMES per conversation turn if you learn multiple facts!**
 
-### Phase 3: Document Collection & Analysis
+### Phase 3: Document Collection
 
-## ⚠️⚠️⚠️ MANDATORY ACTIONS WHEN DOCUMENTS ARE UPLOADED ⚠️⚠️⚠️
-
-When you see "[DOCUMENT UPLOADED]", you MUST do ALL of these:
-1. Call `handle_evidence_response(has_document=True, document_uploaded=True)` - Updates UI
-2. "Analyze" the document and EXTRACT FACTS:
-   - For incident report: incident_date, incident_location, incident_description, employer_name
-   - For medical records: injuries, injury_severity, medical_expenses, medical_providers
-   - For pay stubs: lost_wages, days_missed_work
-3. Call `update_case_facts()` for EACH extracted fact!
-4. Then confirm findings with user
-
-**Example document upload flow:**
-```
-User: [DOCUMENT UPLOADED] incident report
-You: 
-1. Call handle_evidence_response(has_document=True, document_uploaded=True)
-2. Say "Thank you! I'm reviewing the incident report now..."
-3. Call update_case_facts("incident_date", "2024-02-08")
-4. Call update_case_facts("incident_location", "Riverside Medical Plaza")
-5. Call update_case_facts("incident_description", "Fall from scaffolding, approximately 15 feet")
-6. Say "I see from the report that the incident occurred on February 8th at Riverside Medical Plaza. Is that correct?"
-```
+**How document collection works:**
+1. You call `request_evidence_upload(type, description)` → Shows upload card
+2. User responds (uploads, says yes/no, or later)
+3. You call `handle_evidence_response()` to record their response
+4. If uploaded → **Evidence Agent analyzes it automatically via RAG**
+5. You receive the analysis results and confirm with user
 
 **Document Response Rules:**
-| User Message | Tool Call |
-|--------------|-----------|
-| "[DOCUMENT UPLOADED] ..." | `handle_evidence_response(has_document=True, document_uploaded=True)` |
-| "Yes I have it" | `handle_evidence_response(has_document=True)` |
-| "No I don't have" | `handle_evidence_response(has_document=False)` |
-| "I'll provide later" | `handle_evidence_response(can_provide_later=True)` |
+| User Response | Your Action |
+|---------------|-------------|
+| "[DOCUMENT UPLOADED]..." | Review analysis, save facts, confirm with user |
+| "Yes I have it" | `handle_evidence_response(has_document=True)` - wait for upload |
+| "No I don't have" | `handle_evidence_response(has_document=False)` - ask follow-up |
+| "I'll provide later" | `handle_evidence_response(can_provide_later=True)` - move on |
 
-**Evidence types for construction fall:**
-- `incident_report` - Employer's incident/accident report (CRITICAL)
-- `medical_records_er` - Emergency room records (CRITICAL)  
-- `medical_records_primary` - Follow-up doctor records (CRITICAL)
-- `witness_statements` - Witness statements (IMPORTANT)
-- `photos_scene` - Photos of accident scene (IMPORTANT)
+**When you receive Evidence Agent analysis:**
+1. Review the extracted facts in the analysis
+2. Call `update_case_facts(field, value)` for each important fact
+3. Confirm key findings with the user: "I see the incident was on Feb 8th. Is that correct?"
+4. After confirmation, ask about the next document
 
-## 📋 SAMPLE CASE FACTS FOR DEMO (Use when "analyzing" documents)
+### Document Validation
 
-When a document is uploaded, "extract" and save these facts using `update_case_facts()`:
+If user uploads the wrong document, the Evidence Agent analysis will reveal this.
+- **Wrong but related** (e.g., medical bill instead of ER records): Keep it, ask for correct doc
+- **Completely irrelevant**: Ask how it relates, may discard if truly unrelated
 
-**From Incident Report:**
-- `plaintiff_name`: "Maria Santos"
-- `employer_name`: "Titan Construction"
-- `incident_date`: "2024-02-08"
-- `incident_location`: "Riverside Medical Plaza, Riverside, CA"
-- `incident_description`: "Fall from scaffolding (approximately 15 feet) while installing drywall. Missing guardrails and no safety harness provided."
+### Phase 5: Calculate Damages
 
-**From Medical Records:**
-- `injuries`: ["right wrist fracture", "concussion", "lumbar spine injury", "contusions"]
-- `injury_severity`: "severe"
-- `medical_expenses`: 67000
-- `future_medical_estimate`: 45000
-
-**From Employment Records:**
-- `plaintiff_occupation`: "Carpenter"
-- `days_missed_work`: 112
-- `lost_wages`: 28672  # ($32/hr × 40hr/wk × 16 weeks + future 6 weeks)
-
-**From Witness Statements:**
-- `witnesses`: ["Carlos Rodriguez (coworker)", "Jimmy Chen (electrician)"]
-
-**From OSHA Report:**
-- `safety_violations`: ["Missing guardrails on scaffolding", "No fall protection provided", "Inadequate safety training"]
-
-**Example: When user uploads incident report:**
-```
-1. handle_evidence_response(has_document=True, document_uploaded=True)
-2. update_case_facts("plaintiff_name", "Maria Santos")
-3. update_case_facts("employer_name", "Titan Construction") 
-4. update_case_facts("incident_date", "2024-02-08")
-5. update_case_facts("incident_location", "Riverside Medical Plaza, Riverside, CA")
-6. update_case_facts("incident_description", "Fall from scaffolding, approximately 15 feet, while installing drywall")
-7. Say: "I've reviewed the incident report. It shows Maria Santos fell from scaffolding at Riverside Medical Plaza on February 8th. Is that correct?"
-```
-
-### Document Validation (IMPORTANT!)
-
-When user UPLOADS a document, validate it matches what was requested:
-
-1. Call `validate_uploaded_document(type, description)` with what the document appears to be
-2. Based on result, call `process_validated_upload(result, keep, new_type)`:
-
-**If "correct"** - Document matches request:
-- `process_validated_upload("correct")` - Accepts and moves to next document
-
-**If "wrong_but_related"** - Wrong doc but useful (e.g., asked for insurance, got medical bill):
-- Say: "Thank you, I'll keep this [uploaded type] on file. However, I still need the [requested doc]. Do you have that?"
-- `process_validated_upload("wrong_but_related", keep_document=True, new_evidence_type="[type]")`
-
-**If "wrong_irrelevant"** - Completely unrelated document:
-- Say: "I'm not sure how this document relates to your case. Can you help me understand?"
-- If user can't explain → `process_validated_upload("wrong_irrelevant")` and re-request
-
-5. Check the result's `action`:
-   - "ASK_NEXT" → ask about `next_item`
-   - "PROCEED_TO_SUMMARY" → done, go to Phase 5
-
-**⚠️ NEVER just mark and move on - ALWAYS gather details even if no document!**
-**⚠️ When evidence contradicts user's verbal info, ASK to confirm before updating.**
-**⚠️ ALWAYS validate uploaded documents match what was requested!**
-
-### Phase 5: Calculate Damages & Settlement Estimate
-When user asks for settlement estimate OR when intake is complete:
-1. Call `calculate_damages()` - this computes the settlement range
-2. Present the breakdown:
-   - Economic damages (medical + lost wages)
-   - Non-economic damages (pain & suffering)
-   - Settlement range (low/mid/high)
+When user asks for settlement estimate OR when `check_intake_complete()` returns `WRAP_UP`:
+1. Call `calculate_damages()` → **Damages Agent calculates using code execution**
+2. Review the returned breakdown with the user
 3. Explain factors affecting the estimate
+
+The Damages Agent handles all the math - you just present the results conversationally.
 
 ### Phase 6: Final Summary & End
 - Call `get_case_summary()` to generate final summary
@@ -887,28 +875,26 @@ When user asks for settlement estimate OR when intake is complete:
 - Don't ask for evidence until you understand the basic situation
 - Be patient with emotional clients
 
-## ⚠️ TOOL CALLING RULES (MUST FOLLOW):
-1. Call `request_evidence_upload(type, desc)` to show the upload card
-2. Ask conversationally about that specific document
-3. When user responds → call `handle_evidence_response()`
-4. If document uploaded → ANALYZE IT, update facts, confirm with user
-5. ONLY THEN call `request_evidence_upload()` for the NEXT document
+## CONVERSATION RULES:
 
-## IMPORTANT: Document Processing Flow
-When a document is uploaded:
-1. Acknowledge the upload: "Thank you for providing that"
-2. Extract key facts and update the case: `update_case_facts("incident_date", "February 8, 2024")`
-3. Confirm findings with user: "I see from the report that X happened. Is that accurate?"
-4. WAIT for user to confirm before moving on
-5. Then ask about the next document
+**Be conversational, not mechanical:**
+- Ask ONE question at a time
+- Keep responses SHORT (2-3 sentences)
+- Show empathy ("I'm sorry to hear that", "That sounds difficult")
+- NEVER provide legal advice
+- Confirm important details before moving on
 
-## PRIORITY: Be conversational, not mechanical!
-- Take time to process each document
-- Confirm important details with the user
-- Don't show the next document card until you've finished discussing the current one
-- The user should feel like they're having a conversation, not filling out a form
+**Document flow:**
+1. Request document → Wait for response
+2. Review Evidence Agent analysis → Save key facts  
+3. Confirm with user → Then ask about next document
 
-Remember: You're helping someone who's been hurt. Be warm, professional, and thorough."""
+**Remember:** You ORCHESTRATE the process. Specialist agents do the analysis.
+- Evidence Agent = Document analysis (RAG)
+- Damages Agent = Settlement math (code execution)
+- You = Conversation + coordination
+
+You're helping someone who's been hurt. Be warm, professional, and thorough."""
 
 
 # ==================== MODEL CONFIGURATION ====================
@@ -930,12 +916,9 @@ def _get_sub_agents():
 
 def calculate_damages() -> dict:
     """
-    Calculate estimated damages and settlement range for the case.
+    Calculate estimated damages and settlement range using the Damages Agent.
     
-    Uses the case facts to compute:
-    - Economic damages (medical expenses + lost wages)
-    - Non-economic damages (pain & suffering based on severity multiplier)
-    - Settlement range (low/mid/high estimates)
+    This delegates to the Damages Agent which uses code execution for accurate math.
     
     Call this when:
     - User asks for settlement estimate
@@ -945,51 +928,77 @@ def calculate_damages() -> dict:
     Returns:
         Dict with damages breakdown and settlement estimates
     """
-    facts = evidence_hub.get_facts()
+    # Import damages agent functions
+    from app.agents.damages_agent import (
+        get_case_damages_data,
+        get_multiplier_guidance,
+        execute_python_code,
+        save_damages_calculation
+    )
     
-    # Extract financial facts
-    medical = facts.get("medical", {})
-    employment = facts.get("employment_impact", {})
-    injuries = facts.get("injuries", {})
+    # Get case data
+    data = get_case_damages_data()
+    medical = data.get("medical", {})
+    employment = data.get("employment", {})
+    injuries = data.get("injuries", {})
     
-    medical_expenses = medical.get("expenses", 0) or 0
-    future_medical = medical.get("future_estimate", 0) or 0
-    lost_wages = employment.get("lost_wages", 0) or 0
-    days_missed = employment.get("days_missed", 0) or 0
-    
-    # Calculate economic damages
-    economic_total = medical_expenses + future_medical + lost_wages
-    
-    # Determine multiplier based on severity
+    medical_expenses = medical.get("expenses") or 0
+    future_medical = medical.get("future_estimate") or 0
+    lost_wages = employment.get("lost_wages") or 0
+    days_missed = employment.get("days_missed") or 0
     severity = injuries.get("severity", "moderate")
-    if severity == "minor":
-        multiplier_low, multiplier_high = 1.5, 2.0
-    elif severity == "moderate":
-        multiplier_low, multiplier_high = 2.0, 3.0
-    elif severity == "serious":
-        multiplier_low, multiplier_high = 3.0, 4.0
-    else:  # severe
-        multiplier_low, multiplier_high = 4.0, 5.0
     
-    # Calculate non-economic (pain & suffering)
-    non_economic_low = economic_total * multiplier_low
-    non_economic_high = economic_total * multiplier_high
-    non_economic_mid = (non_economic_low + non_economic_high) / 2
+    # Get multiplier guidance from damages agent
+    multiplier_info = get_multiplier_guidance(severity)
+    multiplier = multiplier_info.get("recommended_multiplier", 2.5)
+    multiplier_range = multiplier_info.get("multiplier_range", "2.0 - 3.0")
     
-    # Calculate totals
-    total_low = economic_total + non_economic_low
-    total_mid = economic_total + non_economic_mid
-    total_high = economic_total + non_economic_high
+    # Use code execution for accurate math (like damages_agent does)
+    calculation_code = f"""
+# Damages Calculation (executed by Damages Agent)
+medical_expenses = {medical_expenses}
+future_medical = {future_medical}
+lost_wages = {lost_wages}
+
+# Economic damages
+economic_total = medical_expenses + future_medical + lost_wages
+
+# Non-economic (pain & suffering)
+multiplier = {multiplier}
+non_economic = economic_total * multiplier
+
+# Settlement range (±20%)
+total = economic_total + non_economic
+settlement_low = total * 0.8
+settlement_high = total * 1.2
+
+print(f"Economic: ${{economic_total:,.0f}}")
+print(f"Non-Economic: ${{non_economic:,.0f}}")
+print(f"Total: ${{total:,.0f}}")
+print(f"Range: ${{settlement_low:,.0f}} - ${{settlement_high:,.0f}}")
+"""
     
-    # Store in evidence hub (individual fields, not a dict)
-    evidence_hub.update_fact("economic_damages", economic_total)
-    evidence_hub.update_fact("non_economic_damages", non_economic_mid)
-    evidence_hub.update_fact("total_damages_estimate", total_mid)
-    evidence_hub.update_fact("settlement_range_low", total_low)
-    evidence_hub.update_fact("settlement_range_high", total_high)
+    result = execute_python_code(calculation_code)
+    
+    # Calculate values for response
+    economic_total = medical_expenses + future_medical + lost_wages
+    non_economic = economic_total * multiplier
+    total = economic_total + non_economic
+    settlement_low = total * 0.8
+    settlement_high = total * 1.2
+    
+    # Save to evidence hub via damages agent
+    save_damages_calculation(
+        economic_damages=economic_total,
+        non_economic_damages=non_economic,
+        settlement_low=settlement_low,
+        settlement_high=settlement_high
+    )
     
     return {
         "status": "success",
+        "calculated_by": "damages_agent",
+        "code_execution_result": result.get("output", ""),
         "economic_damages": {
             "medical_expenses": medical_expenses,
             "future_medical": future_medical,
@@ -999,17 +1008,16 @@ def calculate_damages() -> dict:
         },
         "non_economic_damages": {
             "severity": severity,
-            "multiplier_range": f"{multiplier_low}x - {multiplier_high}x",
-            "estimate_low": non_economic_low,
-            "estimate_high": non_economic_high,
+            "multiplier": multiplier,
+            "multiplier_range": multiplier_range,
+            "estimate": non_economic,
         },
         "settlement_range": {
-            "low": f"${total_low:,.0f}",
-            "mid": f"${total_mid:,.0f}",
-            "high": f"${total_high:,.0f}",
+            "low": f"${settlement_low:,.0f}",
+            "mid": f"${total:,.0f}",
+            "high": f"${settlement_high:,.0f}",
         },
-        "explanation": f"Based on ${economic_total:,.0f} in economic damages with a {multiplier_low}-{multiplier_high}x multiplier for {severity} injuries.",
-        "say_to_user": f"Based on your medical expenses of ${medical_expenses:,.0f}, future medical needs of ${future_medical:,.0f}, and lost wages of ${lost_wages:,.0f}, your estimated settlement range is ${total_low:,.0f} to ${total_high:,.0f}. The midpoint estimate is ${total_mid:,.0f}."
+        "say_to_user": f"Based on ${economic_total:,.0f} in economic damages and a {multiplier}x multiplier for {severity} injuries, your estimated settlement range is ${settlement_low:,.0f} to ${settlement_high:,.0f}."
     }
 
 
@@ -1032,23 +1040,21 @@ HUB_TOOLS = [
 
 
 # Create the root agent for ADK (text chat)
-# NOTE: google_search cannot be mixed with custom function tools in Vertex AI
-# Removed google_search to avoid "Multiple tools are supported only when they are all search tools" error
 root_agent = Agent(
     name="lexie_root_agent",
     model=CHAT_MODEL,
-    description="AI-powered legal intake assistant for workplace injury cases",
+    description="AI-powered legal intake assistant for personal injury cases",
     instruction=LIVE_AGENT_INSTRUCTION,
-    tools=HUB_TOOLS,  # No google_search - incompatible with function tools
+    tools=HUB_TOOLS,  
 )
 
 # Create a separate agent for live streaming (voice)
 live_agent = Agent(
     name="lexie_live_agent",
     model=LIVE_MODEL,
-    description="AI-powered legal intake assistant for workplace injury cases",
+    description="AI-powered legal intake assistant for personal injury cases",
     instruction=LIVE_AGENT_INSTRUCTION,
-    tools=HUB_TOOLS,  # No google_search - incompatible with function tools
+    tools=HUB_TOOLS,  
 )
 
 

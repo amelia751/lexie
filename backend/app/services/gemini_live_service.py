@@ -61,7 +61,10 @@ def get_live_data_snapshot() -> dict:
             "priority": item.priority.value,
         })
     
-    # Build timeline from facts
+    # Build timeline from facts - include source document for provenance
+    # source_files maps category -> frontend file ID for click-to-highlight
+    source_files = facts.get("source_files", {})
+    
     timeline_events = []
     if incident.get("date"):
         timeline_events.append({
@@ -70,6 +73,8 @@ def get_live_data_snapshot() -> dict:
             "event": "Workplace Injury",
             "description": incident.get("description", ""),
             "category": "incident",
+            "source": "Incident Report",
+            "sourceFileId": source_files.get("incident"),  # Links to file in explorer
         })
     
     # Build medical records
@@ -82,6 +87,8 @@ def get_live_data_snapshot() -> dict:
             "event": "Medical Treatment",
             "description": f"Medical expenses: ${medical_expense:,}",
             "category": "medical",
+            "source": "Medical Records",
+            "sourceFileId": source_files.get("medical"),  # Links to file in explorer
         })
         medical_records.append({
             "id": "medical-1",
@@ -349,29 +356,65 @@ class GeminiLiveService:
                                     
                                     # INTERCEPT: Detect [DOCUMENT UPLOADED] and auto-process
                                     if content.startswith("[DOCUMENT UPLOADED]"):
-                                        logger.info(f"[INTERCEPT] Document upload detected, auto-calling handle_evidence_response")
-                                        # Import the tool function directly
+                                        logger.info(f"[INTERCEPT] Document upload detected")
+                                        
+                                        # Extract file IDs from the message for source tracking
+                                        import re
+                                        file_ids_match = re.search(r'\[FILE_IDS:\s*([^\]]+)\]', content)
+                                        file_ids = []
+                                        current_item = evidence_hub.get_currently_requested()
+                                        doc_type = current_item.type if current_item else "document"
+                                        
+                                        if file_ids_match:
+                                            file_ids = [fid.strip() for fid in file_ids_match.group(1).split(',')]
+                                            logger.info(f"[INTERCEPT] Extracted file IDs: {file_ids}")
+                                            
+                                            if current_item and file_ids:
+                                                # Determine category and store file ID for provenance
+                                                category = "incident"
+                                                if "medical" in current_item.id.lower():
+                                                    category = "medical"
+                                                elif "incident" in current_item.id.lower():
+                                                    category = "incident"
+                                                elif "insurance" in current_item.id.lower():
+                                                    category = "insurance"
+                                                
+                                                evidence_hub.facts.source_files[category] = file_ids[0]
+                                                logger.info(f"[INTERCEPT] Stored source file: {category} -> {file_ids[0]}")
+                                        
+                                        # Call evidence_agent to actually analyze the document!
+                                        from app.agents.evidence_agent import analyze_case_evidence
+                                        analysis_result = None
+                                        try:
+                                            aspect = "injuries" if "medical" in doc_type else "timeline"
+                                            analysis_result = analyze_case_evidence(aspect)
+                                            logger.info(f"[INTERCEPT] Evidence analysis result: {analysis_result.get('status')}")
+                                        except Exception as e:
+                                            logger.warning(f"[INTERCEPT] Evidence analysis failed: {e}")
+                                        
+                                        # Mark evidence as uploaded
                                         from app.agents.live_agent import handle_evidence_response
                                         result = handle_evidence_response(has_document=True, document_uploaded=True)
-                                        logger.info(f"[INTERCEPT] Result: {result}")
+                                        logger.info(f"[INTERCEPT] handle_evidence_response result: {result}")
                                         
-                                        # Send notification to frontend about the tool call
+                                        # Send notification to frontend
                                         await websocket.send_json({
                                             "type": "tool_call",
-                                            "content": "Processing uploaded document...",
-                                            "tool": "handle_evidence_response",
-                                            "args": {"has_document": True, "document_uploaded": True},
+                                            "content": "Analyzing document with Evidence Agent...",
+                                            "tool": "evidence_agent.analyze_case_evidence",
+                                            "args": {"document_type": doc_type},
                                         })
                                         
-                                        # Send updated state
-                                        new_state = get_live_data_snapshot()
-                                        await websocket.send_json({
-                                            "type": "live_update",
-                                            "data": new_state,
-                                        })
+                                        # Note: Don't send live_update here - agent's subsequent
+                                        # tool calls will trigger it with deduplication
                                         
-                                        # Modify message to tell agent the upload was handled
-                                        content = f"[Document already processed by system] User uploaded a document. The tool handle_evidence_response was already called. Please acknowledge receipt and analyze the document contents."
+                                        # Build analysis summary for the agent
+                                        analysis_summary = ""
+                                        if analysis_result and analysis_result.get("status") == "success":
+                                            analysis_summary = f"\n\nEvidence Agent Analysis:\n{analysis_result.get('analysis', 'No details available.')}"
+                                        
+                                        # Tell the agent to use the analysis results
+                                        content = f"User uploaded {doc_type}. Evidence Agent has analyzed it.{analysis_summary}\n\nDO NOT call handle_evidence_response again (already processed). Summarize the findings and ask if details are correct."
                                     
                                     live_request_queue.send_content(
                                         types.Content(
@@ -420,7 +463,43 @@ class GeminiLiveService:
                     "last_turn_sent": -1,  # Which msg's turn_complete we've sent
                     "response_for_msg": -1,  # Which msg we've started responding to
                     "response_text_sent": "",  # Track what text we've already sent
+                    "last_state_hash": "",  # For deduplicating live_updates
                 }
+                
+                def get_state_hash(state: dict) -> str:
+                    """Get a simple hash of state to detect changes."""
+                    import hashlib
+                    # Only hash key fields that change
+                    evidence_status = tuple(
+                        (e.get('id'), e.get('status')) 
+                        for e in state.get('evidenceItems', [])
+                    )
+                    doc_req = state.get('currentDocumentRequest')
+                    doc_req_id = doc_req.get('id') if doc_req else None
+                    facts = state.get('caseFacts', {})
+                    # Create hashable representation
+                    key = (
+                        evidence_status,
+                        doc_req_id,
+                        facts.get('incidentDate'),
+                        facts.get('employerName'),
+                        str(facts.get('injuries', [])),
+                        facts.get('medicalExpenses'),
+                    )
+                    return hashlib.md5(str(key).encode()).hexdigest()[:8]
+                
+                async def send_live_update_if_changed():
+                    """Send live_update only if state has changed."""
+                    new_state = get_live_data_snapshot()
+                    new_hash = get_state_hash(new_state)
+                    if new_hash != turn_state["last_state_hash"]:
+                        turn_state["last_state_hash"] = new_hash
+                        await websocket.send_json({
+                            "type": "live_update",
+                            "data": new_state,
+                        })
+                        return new_state
+                    return None
                 
                 # Task to receive from Gemini and send to client
                 async def send_to_client():
@@ -521,19 +600,15 @@ class GeminiLiveService:
                                         "type": "turn_complete",
                                     })
                                     
-                                    # Send live update after turn complete
-                                    new_state = get_live_data_snapshot()
-                                    logger.info(f"[Turn Complete] msg #{current_msg}, evidence items: {len(new_state.get('evidenceItems', []))}")
-                                    
-                                    await websocket.send_json({
-                                        "type": "live_update",
-                                        "data": new_state,
-                                    })
-                                    prev_state = new_state
+                                    # Send live update only if state changed
+                                    new_state = await send_live_update_if_changed()
+                                    if new_state:
+                                        logger.info(f"[Turn Complete] msg #{current_msg}, evidence items: {len(new_state.get('evidenceItems', []))}")
+                                        prev_state = new_state
                                 # Skip duplicate turn_completes silently
                             
-                            # Tool call events - just notify frontend about tool calls
-                            # (don't send live_update here - tools haven't executed yet)
+                            # Tool call events - notify frontend about tool calls
+                            # Send state update only if state actually changed (deduplication)
                             if event.actions:
                                 func_calls = event.get_function_calls()
                                 if func_calls:
@@ -544,6 +619,11 @@ class GeminiLiveService:
                                             "tool": fc.name,
                                             "args": dict(fc.args) if hasattr(fc, 'args') else {},
                                         })
+                                    
+                                    # Send updated state only if it changed
+                                    new_state = await send_live_update_if_changed()
+                                    if new_state:
+                                        prev_state = new_state
                                         
                     except Exception as e:
                         logger.error(f"Error in send_to_client for {client_id}: {e}")
@@ -562,7 +642,7 @@ class GeminiLiveService:
                     types.Content(
                         role="user",
                         parts=[types.Part.from_text(
-                            text="[Session started - please greet the user and introduce yourself as Lexie, then ask how you can help them today with their legal intake.]"
+                            text="[Session started - please greet the user warmly and introduce yourself as Lexie, a legal intake assistant. Ask how you can help them today with their injury case. Do NOT assume a specific type of injury - let them tell you what happened.]"
                         )]
                     )
                 )

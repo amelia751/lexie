@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { useLiveCase } from '@/contexts/live-case-context';
 import EvidenceViewer from '@/components/evidence-viewer/evidence-viewer';
+import { ExternalLink } from 'lucide-react';
 
 export default function LiveTimelineView() {
-  const { timelineEvents, lastUpdatedField } = useLiveCase();
+  const { timelineEvents, lastUpdatedField, highlightFile, uploadedFiles } = useLiveCase();
   const [viewingEvidence, setViewingEvidence] = useState<{ source: string; url: string; type: 'pdf' | 'image' } | null>(null);
   
   const hasAnyData = timelineEvents.length > 0;
@@ -23,6 +24,10 @@ export default function LiveTimelineView() {
   };
 
   const getSourceName = (event: typeof timelineEvents[0]) => {
+    // Use explicit source if provided, otherwise derive from category
+    if (event.source) {
+      return event.source;
+    }
     switch(event.category) {
       case 'incident': return 'Incident Report';
       case 'medical': return 'Medical Records';
@@ -33,6 +38,25 @@ export default function LiveTimelineView() {
   };
 
   const handleViewSource = (event: typeof timelineEvents[0]) => {
+    // If we have a sourceFileId, highlight it in the file explorer
+    if (event.sourceFileId) {
+      highlightFile(event.sourceFileId);
+      return;
+    }
+    
+    // Otherwise, try to find a matching file by source name
+    const sourceName = getSourceName(event).toLowerCase();
+    const matchingFile = uploadedFiles.find(f => 
+      f.name.toLowerCase().includes(sourceName.replace(' ', '-').replace(' ', '_')) ||
+      sourceName.includes(f.name.toLowerCase().split('.')[0])
+    );
+    
+    if (matchingFile) {
+      highlightFile(matchingFile.id);
+      return;
+    }
+    
+    // Fallback: show evidence viewer with placeholder
     const isPhoto = event.category === 'incident' && event.event.toLowerCase().includes('photo');
     setViewingEvidence({
       source: getSourceName(event),
@@ -43,14 +67,11 @@ export default function LiveTimelineView() {
     });
   };
 
-  // Mock photo URLs for incident events
-  const getEventPhotos = (event: typeof timelineEvents[0]) => {
-    if (event.category === 'incident') {
-      return [
-        'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=400&h=300&fit=crop',
-        'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=400&h=300&fit=crop',
-      ];
-    }
+  // Get photos associated with event (only if explicitly added)
+  const getEventPhotos = (_event: typeof timelineEvents[0]): string[] | null => {
+    // In live mode, photos would be from actual uploaded files
+    // Only return photos if they exist in the event data
+    // Future: check event.photos or similar field
     return null;
   };
 

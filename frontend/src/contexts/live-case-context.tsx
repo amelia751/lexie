@@ -41,6 +41,8 @@ export interface LiveTimelineEvent {
   event: string;
   description?: string;
   category: 'incident' | 'medical' | 'legal' | 'insurance';
+  source?: string;       // Document name (e.g., "Incident Report", "Medical Records")
+  sourceFileId?: string; // Links to the file in explorer for click-to-highlight
   addedAt: number;
 }
 
@@ -51,6 +53,8 @@ export interface LiveMedicalRecord {
   service: string;
   amount: number;
   diagnosis?: string;
+  source?: string;       // Document name (e.g., "ER Records", "Doctor's Report")
+  sourceFileId?: string; // Links to the file in explorer for click-to-highlight
   addedAt: number;
 }
 
@@ -110,6 +114,8 @@ interface LiveCaseContextType {
   // File upload methods
   addUploadedFile: (file: Omit<LiveUploadedFile, 'id' | 'uploadedAt'>) => string;
   updateFileStatus: (id: string, status: LiveUploadedFile['status'], errorMessage?: string) => void;
+  highlightFile: (fileId: string | null) => void; // Highlight a file in the explorer
+  highlightedFileId: string | null;
   
   // Animation tracking
   lastUpdatedField: string | null;
@@ -137,6 +143,7 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
   const [medicalRecords, setMedicalRecords] = useState<LiveMedicalRecord[]>([]);
   const [damagesEstimate, setDamagesEstimate] = useState<LiveDamagesEstimate>(initialDamages);
   const [uploadedFiles, setUploadedFiles] = useState<LiveUploadedFile[]>([]);
+  const [highlightedFileId, setHighlightedFileId] = useState<string | null>(null);
   
   const [lastUpdatedField, setLastUpdatedField] = useState<string | null>(null);
   const [lastUpdatedTab, setLastUpdatedTab] = useState<TabType | null>(null);
@@ -204,8 +211,14 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
   }, [clearUpdateHighlight, setActiveTab, isSessionActive]);
 
   const addEvidenceItem = useCallback((item: Omit<LiveEvidenceItem, 'addedAt'>) => {
-    const newItem: LiveEvidenceItem = { ...item, addedAt: Date.now() };
-    setEvidenceItems(prev => [...prev, newItem]);
+    setEvidenceItems(prev => {
+      // Check for duplicate by ID
+      if (prev.some(e => e.id === item.id)) {
+        return prev; // Don't add duplicates
+      }
+      const newItem: LiveEvidenceItem = { ...item, addedAt: Date.now() };
+      return [...prev, newItem];
+    });
     setLastUpdatedField(`evidence.${item.id}`);
     setLastUpdatedTab('evidence');
     clearUpdateHighlight();
@@ -225,10 +238,21 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
   }, [clearUpdateHighlight]);
 
   const addTimelineEvent = useCallback((event: Omit<LiveTimelineEvent, 'addedAt'>) => {
-    const newEvent: LiveTimelineEvent = { ...event, addedAt: Date.now() };
-    setTimelineEvents(prev => [...prev, newEvent].sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    ));
+    setTimelineEvents(prev => {
+      // Check for duplicate - same id or same date+event combo
+      const isDuplicate = prev.some(e => 
+        e.id === event.id || 
+        (e.date === event.date && e.event === event.event)
+      );
+      if (isDuplicate) {
+        return prev; // Don't add duplicates
+      }
+      
+      const newEvent: LiveTimelineEvent = { ...event, addedAt: Date.now() };
+      return [...prev, newEvent].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+    });
     setLastUpdatedField(`timeline.${event.id}`);
     setLastUpdatedTab('timeline');
     clearUpdateHighlight();
@@ -240,10 +264,16 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
   }, [clearUpdateHighlight, setActiveTab, isSessionActive]);
 
   const addMedicalRecord = useCallback((record: Omit<LiveMedicalRecord, 'addedAt'>) => {
-    const newRecord: LiveMedicalRecord = { ...record, addedAt: Date.now() };
-    setMedicalRecords(prev => [...prev, newRecord].sort((a, b) =>
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    ));
+    setMedicalRecords(prev => {
+      // Check for duplicate by ID
+      if (prev.some(r => r.id === record.id)) {
+        return prev; // Don't add duplicates
+      }
+      const newRecord: LiveMedicalRecord = { ...record, addedAt: Date.now() };
+      return [...prev, newRecord].sort((a, b) =>
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+    });
     setLastUpdatedField(`medical.${record.id}`);
     setLastUpdatedTab('medical');
     clearUpdateHighlight();
@@ -296,6 +326,15 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  // Highlight a file in the explorer (for source tracking)
+  const highlightFile = useCallback((fileId: string | null) => {
+    setHighlightedFileId(fileId);
+    // Auto-clear highlight after 3 seconds
+    if (fileId) {
+      setTimeout(() => setHighlightedFileId(null), 3000);
+    }
+  }, []);
+
   const resetCase = useCallback(() => {
     setCaseFacts(initialCaseFacts);
     setEvidenceItems([]);
@@ -303,6 +342,7 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     setMedicalRecords([]);
     setDamagesEstimate(initialDamages);
     setUploadedFiles([]);
+    setHighlightedFileId(null);
     setOpenTabs([]);
     setActiveTabState('summary');
     setLastUpdatedField(null);
@@ -336,6 +376,8 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
         updateDamages,
         addUploadedFile,
         updateFileStatus,
+        highlightFile,
+        highlightedFileId,
         lastUpdatedField,
         lastUpdatedTab,
         isTyping,

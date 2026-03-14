@@ -15,7 +15,7 @@ from app.services.vision_service import vision_service
 
 
 # Evidence Agent Instructions
-EVIDENCE_AGENT_INSTRUCTION = """You are an Evidence Analysis Agent for a legal intake system handling workplace injury cases.
+EVIDENCE_AGENT_INSTRUCTION = """You are an Evidence Analysis Agent for a legal intake system handling personal injury cases.
 
 Your role is to analyze legal evidence documents AND images to extract relevant information for the case.
 

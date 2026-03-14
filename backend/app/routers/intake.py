@@ -61,7 +61,7 @@ def get_live_data_snapshot() -> dict:
             "priority": item.priority.value,
         })
     
-    # Build timeline from facts
+    # Build timeline from facts - include source document for provenance
     timeline_events = []
     if incident.get("date"):
         timeline_events.append({
@@ -70,6 +70,7 @@ def get_live_data_snapshot() -> dict:
             "event": "Workplace Injury",
             "description": incident.get("description", ""),
             "category": "incident",
+            "source": "Incident Report",  # Provenance tracking
         })
     
     # Build medical records
@@ -82,6 +83,7 @@ def get_live_data_snapshot() -> dict:
             "event": "Medical Treatment",
             "description": f"Medical expenses: ${medical_expense:,}",
             "category": "medical",
+            "source": "Medical Records",  # Provenance tracking
         })
         medical_records.append({
             "id": "medical-1",

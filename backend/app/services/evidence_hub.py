@@ -107,6 +107,10 @@ class CaseFacts:
     settlement_range_low: Optional[float] = None
     settlement_range_high: Optional[float] = None
     
+    # Source file tracking - maps category to frontend file ID
+    # e.g., {"incident": "file-123...", "medical": "file-456..."}
+    source_files: dict = field(default_factory=dict)
+    
     def to_dict(self) -> dict:
         return {
             "plaintiff": {
@@ -157,7 +161,8 @@ class CaseFacts:
                     "low": self.settlement_range_low,
                     "high": self.settlement_range_high,
                 }
-            }
+            },
+            "source_files": self.source_files,  # Maps category -> frontend file ID
         }
     
     def update(self, field_path: str, value) -> None:
@@ -483,6 +488,196 @@ class EvidenceHub:
         self.add_evidence_item(
             "photos",
             "Any relevant photos",
+            EvidencePriority.HELPFUL
+        )
+    
+    def initialize_motor_vehicle_accident_checklist(self) -> None:
+        """Initialize checklist for motor vehicle accident case."""
+        self._case_type = "motor_vehicle_accident"
+        
+        self.add_evidence_item(
+            "police_report",
+            "Police/accident report from the scene",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "medical_records",
+            "Medical records documenting injuries",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "insurance_info",
+            "Insurance information (yours and other party's)",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "photos_scene",
+            "Photos of the accident scene",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "photos_vehicle_damage",
+            "Photos of vehicle damage",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "witness_info",
+            "Witness contact information or statements",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "repair_estimates",
+            "Vehicle repair estimates or invoices",
+            EvidencePriority.HELPFUL
+        )
+        self.add_evidence_item(
+            "lost_wage_docs",
+            "Documentation of lost wages",
+            EvidencePriority.HELPFUL
+        )
+    
+    def initialize_slip_and_fall_checklist(self) -> None:
+        """Initialize checklist for slip and fall / premises liability case."""
+        self._case_type = "slip_and_fall"
+        
+        self.add_evidence_item(
+            "incident_report",
+            "Incident report from property owner/manager",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "medical_records",
+            "Medical records documenting injuries",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "photos_hazard",
+            "Photos of the hazard that caused the fall",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "photos_injuries",
+            "Photos of your injuries",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "witness_info",
+            "Witness contact information or statements",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "clothing_shoes",
+            "Photos of clothing/shoes worn (if relevant)",
+            EvidencePriority.HELPFUL
+        )
+        self.add_evidence_item(
+            "maintenance_records",
+            "Property maintenance records (if obtainable)",
+            EvidencePriority.HELPFUL
+        )
+    
+    def initialize_medical_malpractice_checklist(self) -> None:
+        """Initialize checklist for medical malpractice case."""
+        self._case_type = "medical_malpractice"
+        
+        self.add_evidence_item(
+            "medical_records_provider",
+            "Complete medical records from the provider in question",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "medical_records_treatment",
+            "Records of corrective treatment received",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "consent_forms",
+            "Informed consent forms you signed",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "prescription_records",
+            "Prescription and medication records",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "medical_bills",
+            "All related medical bills",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "expert_opinion",
+            "Second opinion or expert medical opinion (if obtained)",
+            EvidencePriority.HELPFUL
+        )
+    
+    def initialize_product_liability_checklist(self) -> None:
+        """Initialize checklist for product liability case."""
+        self._case_type = "product_liability"
+        
+        self.add_evidence_item(
+            "product_itself",
+            "The defective product (or photos of it)",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "medical_records",
+            "Medical records documenting injuries",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "purchase_proof",
+            "Proof of purchase (receipt, invoice, credit card statement)",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "photos_injuries",
+            "Photos of injuries caused by the product",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "product_packaging",
+            "Product packaging, instructions, or warnings",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "witness_info",
+            "Witness contact information or statements",
+            EvidencePriority.HELPFUL
+        )
+    
+    def initialize_generic_personal_injury_checklist(self) -> None:
+        """Initialize checklist for generic personal injury case."""
+        self._case_type = "personal_injury"
+        
+        self.add_evidence_item(
+            "incident_description",
+            "Written description of how the injury occurred",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "medical_records",
+            "Medical records documenting injuries",
+            EvidencePriority.CRITICAL
+        )
+        self.add_evidence_item(
+            "photos",
+            "Photos of injuries or incident scene",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "witness_info",
+            "Witness contact information or statements",
+            EvidencePriority.IMPORTANT
+        )
+        self.add_evidence_item(
+            "medical_bills",
+            "Medical bills and expenses",
+            EvidencePriority.HELPFUL
+        )
+        self.add_evidence_item(
+            "lost_wage_docs",
+            "Documentation of lost wages (if applicable)",
             EvidencePriority.HELPFUL
         )
     

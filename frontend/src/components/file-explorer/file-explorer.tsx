@@ -29,7 +29,7 @@ const getFileIcon = (status?: string) => {
 
 export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplorerProps) {
   const { evidence, addEvidence, mode } = useEvidence();
-  const { uploadedFiles, addUploadedFile, updateFileStatus, isSessionActive } = useLiveCase();
+  const { uploadedFiles, addUploadedFile, updateFileStatus, isSessionActive, highlightedFileId } = useLiveCase();
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
@@ -187,6 +187,8 @@ export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplo
                 ? (item as LiveUploadedFile).size 
                 : (item as Evidence).size;
 
+              const isHighlighted = highlightedFileId === item.id;
+              
               return (
                 <div
                   key={item.id}
@@ -195,10 +197,12 @@ export default function FileExplorer({ onFileSelect, selectedFileId }: FileExplo
                       onFileSelect(item as Evidence);
                     }
                   }}
-                  className={`flex items-center py-1 px-3 cursor-pointer text-sm transition-colors ${
-                    selectedFileId === item.id
-                      ? 'bg-gray-100'
-                      : 'hover:bg-gray-50'
+                  className={`flex items-center py-1 px-3 cursor-pointer text-sm transition-all ${
+                    isHighlighted
+                      ? 'bg-blue-100 ring-2 ring-blue-400 ring-inset animate-pulse'
+                      : selectedFileId === item.id
+                        ? 'bg-gray-100'
+                        : 'hover:bg-gray-50'
                   } ${status === 'processing' ? 'opacity-70' : ''}`}
                 >
                   <div className="flex-shrink-0 mr-2">
