@@ -279,6 +279,73 @@ class EvidenceHub:
             if item.status in [EvidenceStatus.REQUIRED, EvidenceStatus.PENDING]
         ]
     
+    def match_file_to_evidence(self, file_name: str, doc_type: str = None) -> Optional[EvidenceItem]:
+        """
+        Match an uploaded file to the correct evidence item based on filename.
+        
+        Args:
+            file_name: Name of the uploaded file
+            doc_type: Optional doc type hint from the upload card
+            
+        Returns:
+            The matching EvidenceItem, or None if no match
+        """
+        file_lower = file_name.lower()
+        
+        # Mapping of file name patterns to evidence types
+        patterns = {
+            "incident": ["incident_report"],
+            "accident": ["incident_report"],
+            "er": ["medical_records_er"],
+            "emergency": ["medical_records_er"],
+            "medical-records-er": ["medical_records_er"],
+            "billing": ["medical_bills", "billing"],
+            "imaging": ["medical_imaging"],
+            "mri": ["medical_imaging"],
+            "xray": ["medical_imaging"],
+            "x-ray": ["medical_imaging"],
+            "ct": ["medical_imaging"],
+            "orthopedic": ["medical_records_primary", "medical_records_specialist"],
+            "neurology": ["medical_records_primary", "medical_records_specialist"],
+            "pt": ["medical_records_primary", "physical_therapy"],
+            "physical": ["medical_records_primary", "physical_therapy"],
+            "witness": ["witness_statements"],
+            "osha": ["osha_report", "osha_investigation"],
+            "safety": ["osha_report", "safety_training"],
+            "training": ["safety_training"],
+            "workers-comp": ["workers_comp_claim"],
+            "workers_comp": ["workers_comp_claim"],
+            "comp-claim": ["workers_comp_claim"],
+            "employment": ["employment_records"],
+            "pay": ["pay_stubs", "employment_records"],
+            "ime": ["ime_report"],
+            "photo": ["photos_scene", "photos_injury"],
+            "fracture": ["photos_injury", "medical_imaging"],
+        }
+        
+        # First, check if doc_type directly matches an item
+        if doc_type:
+            for item in self.checklist:
+                if item.type == doc_type and item.status == EvidenceStatus.REQUIRED:
+                    return item
+        
+        # Then, try to match by file name patterns
+        for pattern, types in patterns.items():
+            if pattern in file_lower:
+                # Find a REQUIRED item matching these types
+                for evidence_type in types:
+                    for item in self.checklist:
+                        if item.type == evidence_type and item.status == EvidenceStatus.REQUIRED:
+                            return item
+        
+        # Fall back to currently requested or next required
+        if self._currently_requested:
+            item = self.get_evidence_item(self._currently_requested)
+            if item and item.status == EvidenceStatus.REQUIRED:
+                return item
+        
+        return self.get_next_required_evidence()
+    
     def get_next_required_evidence(self) -> Optional[EvidenceItem]:
         """Get the next REQUIRED evidence item (items not yet addressed)."""
         # Only get items that are still REQUIRED (not yet addressed by user)

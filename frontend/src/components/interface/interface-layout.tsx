@@ -162,7 +162,15 @@ function InterfaceLayoutInner() {
               Cancel
             </button>
             <button
-              onClick={() => window.location.reload()}
+              onClick={async () => {
+                try {
+                  // Reset backend state first
+                  await fetch('http://localhost:8000/api/v1/intake/reset', { method: 'POST' });
+                } catch (e) {
+                  console.error('Failed to reset backend:', e);
+                }
+                window.location.reload();
+              }}
               className="px-3 py-1.5 text-xs font-medium text-white bg-true-turquoise border border-true-turquoise rounded-md hover:bg-telly-blue transition-colors"
             >
               Reset

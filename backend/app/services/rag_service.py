@@ -150,6 +150,33 @@ class RAGService:
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
+    def clear_corpus(self) -> dict:
+        """Delete all files from the corpus (full reset)."""
+        self.initialize()
+        
+        deleted = []
+        errors = []
+        
+        try:
+            files = self.list_files()
+            for f in files:
+                file_name = f.get("name")
+                if file_name:
+                    try:
+                        rag.delete_file(name=file_name)
+                        deleted.append(f.get("display_name", file_name))
+                    except Exception as e:
+                        errors.append({"file": file_name, "error": str(e)})
+            
+            return {
+                "status": "cleared",
+                "deleted_count": len(deleted),
+                "deleted": deleted,
+                "errors": errors if errors else None
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
     def retrieve(
         self,
         query: str,

@@ -39,13 +39,18 @@ interface LiveDataSnapshot {
     id: string;
     date: string;
     provider: string;
-    service: string;
+    service?: string;
+    diagnosis?: string;
+    icd10?: string;
     amount?: number;
   }>;
   damagesEstimate: {
     pastMedical?: number;
     futureMedical?: number;
     lostWages?: number;
+    economicDamages?: number;
+    nonEconomicDamages?: number;
+    totalEstimate?: number;
     settlementLow?: number;
     settlementHigh?: number;
   };
@@ -101,7 +106,15 @@ export default function VoiceChat() {
   const addDebugLog = (type: string, data: unknown) => {
     const time = new Date().toLocaleTimeString();
     const dataStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-    setDebugLogs(prev => [...prev.slice(-50), { time, type, data: dataStr }]); // Keep last 50
+    setDebugLogs(prev => [...prev.slice(-200), { time, type, data: dataStr }]); // Keep last 200
+  };
+  const copyDebugLogs = () => {
+    const text = debugLogs.map(log => `${log.time} [${log.type}] ${log.data}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      alert('Debug logs copied to clipboard!');
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+    });
   };
   
   // Connection state
@@ -168,6 +181,7 @@ export default function VoiceChat() {
     updateDamages,
     setActiveTab,
     evidenceItems,
+    uploadedFiles,
     addUploadedFile,
     updateFileStatus,
   } = useLiveCase();
@@ -406,9 +420,10 @@ export default function VoiceChat() {
       });
     }
     
-    // Update timeline
-    if (data.timelineEvents) {
-      data.timelineEvents.forEach(event => {
+    // Update timeline - auto-switch on first significant timeline event
+    if (data.timelineEvents && data.timelineEvents.length > 0) {
+      const isFirstTimeline = data.timelineEvents.length >= 2; // Switch when we have multiple events
+      data.timelineEvents.forEach((event, idx) => {
         // Map backend category to frontend type
         const categoryMap: Record<string, 'incident' | 'medical' | 'legal' | 'insurance'> = {
           'incident': 'incident',
@@ -417,38 +432,46 @@ export default function VoiceChat() {
           'evidence': 'legal', // Map evidence to legal for now
           'insurance': 'insurance',
         };
+        // Auto-switch on last event if this is significant
         addTimelineEvent({
           id: event.id,
           date: event.date,
           event: event.event,
           description: event.description || '',
           category: categoryMap[event.category] || 'incident',
-        });
+        }, isFirstTimeline && idx === data.timelineEvents!.length - 1);
       });
     }
     
-    // Update medical records
-    if (data.medicalRecords) {
-      data.medicalRecords.forEach(record => {
+    // Update medical records - auto-switch when we have significant medical data
+    if (data.medicalRecords && data.medicalRecords.length > 0) {
+      const isSignificantMedical = data.medicalRecords.length >= 2; // Switch when we have multiple records
+      data.medicalRecords.forEach((record, idx) => {
         addMedicalRecord({
           id: record.id,
           date: record.date,
           provider: record.provider,
-          service: record.service,
+          service: record.service || record.diagnosis,
+          diagnosis: record.diagnosis,
+          icd10: record.icd10,
           amount: record.amount || 0,
-        });
+        }, isSignificantMedical && idx === data.medicalRecords!.length - 1);
       });
     }
     
-    // Update damages
+    // Update damages - auto-switch to damages tab when calculated (significant event)
     if (data.damagesEstimate && Object.keys(data.damagesEstimate).length > 0) {
+      const hasSignificantDamages = !!(data.damagesEstimate.settlementLow || data.damagesEstimate.totalEstimate);
       updateDamages({
         pastMedical: data.damagesEstimate.pastMedical,
         futureMedical: data.damagesEstimate.futureMedical,
         lostWages: data.damagesEstimate.lostWages,
+        economicDamages: data.damagesEstimate.economicDamages,
+        nonEconomicDamages: data.damagesEstimate.nonEconomicDamages,
+        totalEstimate: data.damagesEstimate.totalEstimate,
         settlementLow: data.damagesEstimate.settlementLow,
         settlementHigh: data.damagesEstimate.settlementHigh,
-      });
+      }, hasSignificantDamages); // Only auto-switch if we have actual settlement values
     }
   }, [mode, updateCaseFact, addEvidenceItem, updateEvidenceStatus, addTimelineEvent, addMedicalRecord, updateDamages, evidenceItems]);
 
@@ -500,6 +523,12 @@ export default function VoiceChat() {
             audioQueueRef.current = [];
           }
           
+          // When a new agent response starts (not partial continuation), clear old audio
+          if (role === 'agent' && !isPartial && !content.startsWith(lastAssistantContentRef.current)) {
+            // This is a NEW response, not a continuation - ensure old audio is cleared
+            audioQueueRef.current = [];
+          }
+          
           // Strip cumulative content from assistant transcripts
           if (role === 'agent' && lastAssistantContentRef.current) {
             if (content.startsWith(lastAssistantContentRef.current)) {
@@ -530,6 +559,37 @@ export default function VoiceChat() {
         } else if (type === 'tool_call') {
           addSystemMessage(`🔧 ${msg.content}`);
           addDebugLog('TOOL_CALL', msg.tool || msg.content);
+        } else if (type === 'extraction_complete') {
+          // Document extraction completed - show results
+          const fileName = msg.file_name || 'document';
+          const fileId = msg.file_id;
+          const timeMs = msg.extraction_time_ms || 0;
+          const facts = msg.facts || {};
+          
+          addDebugLog('EXTRACTION', `${fileName} extracted in ${timeMs}ms`);
+          addSystemMessage(`✅ Extracted facts from ${fileName} (${(timeMs/1000).toFixed(1)}s)`);
+          
+          // Show key extracted facts
+          const keyFacts = ['plaintiff_name', 'patient_name', 'incident_date', 'total_amount', 'diagnoses'];
+          for (const key of keyFacts) {
+            if (facts[key]) {
+              const value = Array.isArray(facts[key]) ? facts[key].slice(0, 2).join(', ') : facts[key];
+              addDebugLog('FACT', `${key}: ${value}`);
+            }
+          }
+          
+          // Update file status to processed - try file_id first, then fall back to name
+          if (fileId) {
+            updateFileStatus(fileId, 'processed');
+            addDebugLog('FILE_STATUS', `Updated ${fileId} to processed`);
+          } else if (msg.file_name) {
+            // Fall back to finding by name
+            const matchingFile = uploadedFiles.find(f => f.name === msg.file_name);
+            if (matchingFile) {
+              updateFileStatus(matchingFile.id, 'processed');
+              addDebugLog('FILE_STATUS', `Updated ${matchingFile.id} (by name) to processed`);
+            }
+          }
         } else if (type === 'live_update') {
           // Update live views with new data from backend
           addDebugLog('WS_LIVE_UPDATE', 'Received');
@@ -544,7 +604,7 @@ export default function VoiceChat() {
         console.error('Parse error:', e);
       }
     },
-    [addDebugLog, addSystemMessage, finalizeLiveTurn, playAudio, stopAudio, updateLiveTurn, dispatchBackendLiveUpdate]
+    [addDebugLog, addSystemMessage, finalizeLiveTurn, playAudio, stopAudio, updateLiveTurn, dispatchBackendLiveUpdate, uploadedFiles, updateFileStatus]
   );
 
   // Keep ref updated so WebSocket always uses latest handler
@@ -1078,12 +1138,14 @@ export default function VoiceChat() {
   };
 
   // Live mode document handlers
-  const handleLiveDocUpload = (files: FileList) => {
+  const handleLiveDocUpload = async (files: FileList) => {
     if (liveDocumentRequest && files.length > 0) {
       const fileNames: string[] = [];
       const fileIds: string[] = [];
       
       // Add files to explorer and track IDs
+      const filesToProcess: { file: File; fileId: string }[] = [];
+      
       Array.from(files).forEach(file => {
         fileNames.push(file.name);
         // Create object URL for viewing the file
@@ -1096,26 +1158,56 @@ export default function VoiceChat() {
           url: fileUrl,
         });
         fileIds.push(fileId);
-        
-        setTimeout(() => {
-          updateFileStatus(fileId, 'processed');
-        }, 2000 + Math.random() * 2000);
+        filesToProcess.push({ file, fileId });
       });
       
       setLiveDocResponseStatus('uploaded');
       
       // PAUSE audio input while document is being processed
-      // This prevents false interruptions from background noise
       processingDocRef.current = true;
       addDebugLog('DOC_PROCESSING', 'Audio paused while agent processes document');
       
-      // CRITICAL: Notify the agent that user ACTUALLY uploaded a document (via card)
-      // Include file IDs for source tracking (so timeline events can link back to files)
+      // Send document with actual file content for INSTANT extraction
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        const docType = liveDocumentRequest.description || liveDocumentRequest.id;
-        const msg = `[DOCUMENT UPLOADED] I have uploaded the ${docType} via the upload card. The file is: ${fileNames.join(', ')}. [FILE_IDS: ${fileIds.join(',')}]`;
-        addDebugLog('DOC_UPLOAD_MSG', `Sending to agent: "${msg}" (fileIds: ${fileIds.join(',')})`);
-        wsRef.current.send(JSON.stringify({ type: 'text', content: msg }));
+        const docType = liveDocumentRequest.id || 'document';
+        const docDescription = liveDocumentRequest.description || docType;
+        
+        // Process ALL files - send each one for instant extraction
+        for (let i = 0; i < filesToProcess.length; i++) {
+          const fileItem = filesToProcess[i];
+          try {
+            const arrayBuffer = await fileItem.file.arrayBuffer();
+            const base64 = btoa(
+              new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+            );
+            
+            // Send document upload message with file content
+            const uploadMsg = {
+              type: 'document_upload',
+              doc_type: docType,
+              description: docDescription,
+              file_name: fileItem.file.name,
+              file_id: fileItem.fileId,
+              file_ids: fileIds,
+              content_base64: base64,
+              mime_type: fileItem.file.type || 'application/octet-stream',
+              is_batch: filesToProcess.length > 1,
+              batch_index: i,
+              batch_total: filesToProcess.length,
+            };
+            
+            addDebugLog('DOC_UPLOAD', `Sending ${fileItem.file.name} (${i+1}/${filesToProcess.length}, ${(base64.length / 1024).toFixed(1)}KB)`);
+            wsRef.current.send(JSON.stringify(uploadMsg));
+            
+            // Small delay between files to avoid overwhelming backend
+            if (i < filesToProcess.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          } catch (e) {
+            addDebugLog('DOC_UPLOAD_ERROR', `Failed to process ${fileItem.file.name}: ${e}`);
+            updateFileStatus(fileItem.fileId, 'error', 'Failed to process file');
+          }
+        }
       }
       
       // Clear document request after sending
@@ -1593,14 +1685,24 @@ export default function VoiceChat() {
       {/* Debug Panel */}
       {mode === 'live' && (
         <div className="mx-4 mb-2">
-          <button 
-            onClick={() => setShowDebug(!showDebug)}
-            className="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-1"
-          >
-            {showDebug ? '▼' : '▶'} Debug ({debugLogs.length})
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowDebug(!showDebug)}
+              className="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-1"
+            >
+              {showDebug ? '▼' : '▶'} Debug ({debugLogs.length})
+            </button>
+            {showDebug && debugLogs.length > 0 && (
+              <button
+                onClick={copyDebugLogs}
+                className="text-[10px] px-2 py-0.5 bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white rounded transition-colors"
+              >
+                📋 Copy All
+              </button>
+            )}
+          </div>
           {showDebug && (
-            <div className="mt-1 p-2 bg-gray-900 rounded-lg max-h-40 overflow-y-auto font-mono text-[10px]">
+            <div className="mt-1 p-2 bg-gray-900 rounded-lg max-h-60 overflow-y-auto font-mono text-[10px]">
               {debugLogs.length === 0 ? (
                 <div className="text-gray-500">No logs yet. Start a session to see debug info.</div>
               ) : (
@@ -1613,6 +1715,8 @@ export default function VoiceChat() {
                       log.type === 'FIRST_REQUIRED' ? 'text-yellow-400' :
                       log.type === 'LIVE_UPDATE' ? 'text-blue-400' :
                       log.type === 'EVIDENCE_ITEMS' ? 'text-purple-400' :
+                      log.type.includes('ERROR') ? 'text-red-400' :
+                      log.type.includes('DOC') ? 'text-orange-400' :
                       'text-gray-400'
                     }`}>[{log.type}]</span>
                     {' '}

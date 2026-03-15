@@ -18,6 +18,7 @@ from google.genai import types
 
 from app.agents.live_agent import root_agent
 from app.services.evidence_hub import evidence_hub, EvidenceStatus
+from app.services.gemini_live_service import get_live_data_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -31,106 +32,6 @@ class IntakeMessage(BaseModel):
     """Intake message request model."""
     message: str
     session_id: Optional[str] = None
-
-
-def get_live_data_snapshot() -> dict:
-    """Get current state of all live data from evidence hub."""
-    facts = evidence_hub.get_facts()
-    checklist = evidence_hub.checklist
-    
-    # Extract nested facts safely
-    plaintiff = facts.get("plaintiff", {})
-    employer = facts.get("employer", {})
-    incident = facts.get("incident", {})
-    injuries = facts.get("injuries", {})
-    medical = facts.get("medical", {})
-    employment = facts.get("employment_impact", {})
-    witnesses = facts.get("witnesses", [])
-    safety = facts.get("safety", {})
-    insurance = facts.get("insurance", {})
-    damages = facts.get("damages", {})
-    
-    # Build evidence items list
-    evidence_items = []
-    for item in checklist:
-        evidence_items.append({
-            "id": item.id,
-            "type": item.type,
-            "description": item.description,
-            "status": item.status.value,
-            "priority": item.priority.value,
-        })
-    
-    # Build timeline from facts - include source document for provenance
-    timeline_events = []
-    if incident.get("date"):
-        timeline_events.append({
-            "id": "incident-1",
-            "date": incident.get("date", "Unknown"),
-            "event": "Workplace Injury",
-            "description": incident.get("description", ""),
-            "category": "incident",
-            "source": "Incident Report",  # Provenance tracking
-        })
-    
-    # Build medical records
-    medical_records = []
-    medical_expense = medical.get("expenses")
-    if medical_expense:
-        timeline_events.append({
-            "id": "medical-1",
-            "date": incident.get("date", "Unknown"),
-            "event": "Medical Treatment",
-            "description": f"Medical expenses: ${medical_expense:,}",
-            "category": "medical",
-            "source": "Medical Records",  # Provenance tracking
-        })
-        medical_records.append({
-            "id": "medical-1",
-            "date": incident.get("date", "Unknown"),
-            "provider": "Medical Treatment",
-            "service": "Total Medical Expenses",
-            "amount": medical_expense,
-        })
-    
-    # Build damages estimate
-    damages_estimate = {}
-    if damages.get("total_estimate"):
-        settlement = damages.get("settlement_range", {})
-        damages_estimate = {
-            "pastMedical": medical.get("expenses"),
-            "futureMedical": medical.get("future_estimate"),
-            "lostWages": employment.get("lost_wages"),
-            "settlementLow": settlement.get("low"),
-            "settlementHigh": settlement.get("high"),
-        }
-    
-    return {
-        "caseFacts": {
-            "plaintiffName": plaintiff.get("name"),
-            "plaintiffAge": plaintiff.get("age"),
-            "plaintiffOccupation": plaintiff.get("occupation"),
-            "employerName": employer.get("name"),
-            "incidentDate": incident.get("date"),
-            "incidentLocation": incident.get("location"),
-            "incidentDescription": incident.get("description"),
-            "incidentType": incident.get("type"),
-            "caseType": evidence_hub._case_type,
-            "injuries": injuries.get("list", []),
-            "injurySeverity": injuries.get("severity"),
-            "medicalExpenses": medical.get("expenses"),
-            "daysMissedWork": employment.get("days_missed"),
-            "lostWages": employment.get("lost_wages"),
-            "witnesses": witnesses,
-            "safetyViolations": safety.get("violations", []),
-            "workersCompFiled": insurance.get("workers_comp_filed"),
-        },
-        "evidenceItems": evidence_items,
-        "timelineEvents": timeline_events,
-        "medicalRecords": medical_records,
-        "damagesEstimate": damages_estimate,
-        "checklistStatus": evidence_hub.get_checklist_status(),
-    }
 
 
 @router.websocket("/intake/{client_id}")
@@ -351,10 +252,22 @@ async def get_intake_state():
 
 
 @router.post("/intake/reset")
-async def reset_intake():
-    """Reset the intake state."""
+async def reset_intake(clear_corpus: bool = False):
+    """
+    Reset the intake state.
+    
+    Args:
+        clear_corpus: If True, also delete all files from the RAG corpus
+    """
     evidence_hub.reset()
+    
+    corpus_result = None
+    if clear_corpus:
+        from app.services.rag_service import rag_service
+        corpus_result = rag_service.clear_corpus()
+    
     return {
         "status": "reset",
+        "corpus_cleared": corpus_result if clear_corpus else None,
         "live_data": get_live_data_snapshot(),
     }

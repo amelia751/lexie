@@ -127,39 +127,59 @@ export default function LiveMedicalView() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {medicalRecords.map((record) => (
-                    <tr
-                      key={record.id}
-                      className={`text-[11px] transition-all ${isRecordUpdating(record.id) ? 'animate-fadeSlideIn' : ''}`}
-                    >
-                      <td className="px-4 py-2 whitespace-nowrap text-gray-700">
-                        {new Date(record.date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
-                      </td>
-                      <td className="px-4 py-2 text-gray-900">{record.provider}</td>
-                      <td className="px-4 py-2 text-gray-700">{record.service}</td>
-                      <td className="px-4 py-2 text-gray-600 font-mono text-[10px]">
-                        {record.service.includes('X-Ray') ? '72040' : 
-                         record.service.includes('CT') ? '72125' :
-                         record.service.includes('Emergency') ? '99285' : '99214'}
-                      </td>
-                      <td className="px-4 py-2 text-gray-600 font-mono text-[10px]">
-                        {record.diagnosis?.includes('vertebr') ? 'S22.0' : 
-                         record.diagnosis?.includes('fracture') ? 'S32.0' : 'S39.92'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-gray-900 font-semibold">{formatCurrency(record.amount)}</td>
-                      <td className="px-4 py-2 text-center">
-                        <span className="px-2 py-0.5 text-[10px] border border-gray-300 rounded text-gray-600">Billed</span>
-                      </td>
-                      <td className="px-4 py-2">
-                        <button
-                          onClick={() => handleViewSource(record.provider)}
-                          className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
-                        >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {medicalRecords.map((record) => {
+                    // Format date safely - handle undefined or invalid dates
+                    // Use UTC parsing to avoid timezone shifts (e.g., 2026-02-08 showing as Feb 7)
+                    let formattedDate = '—';
+                    if (record.date) {
+                      const parts = record.date.split('-');
+                      if (parts.length === 3) {
+                        // Parse as local date to avoid UTC offset issues
+                        formattedDate = `${parts[1]}/${parts[2]}/${parts[0]}`;
+                      } else if (!isNaN(new Date(record.date).getTime())) {
+                        formattedDate = new Date(record.date + 'T12:00:00').toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+                      }
+                    }
+                    const hasSource = !!record.sourceFileId;
+                    
+                    return (
+                      <tr
+                        key={record.id}
+                        className={`text-[11px] transition-all ${isRecordUpdating(record.id) ? 'animate-fadeSlideIn' : ''}`}
+                      >
+                        <td className="px-4 py-2 whitespace-nowrap text-gray-700">
+                          {formattedDate}
+                        </td>
+                        <td className="px-4 py-2 text-gray-900">{record.provider}</td>
+                        <td className="px-4 py-2 text-gray-700">{record.service || record.diagnosis || 'Treatment'}</td>
+                        <td className="px-4 py-2 text-gray-600 font-mono text-[10px]">
+                          {record.service?.includes('X-Ray') ? '72040' : 
+                           record.service?.includes('CT') ? '72125' :
+                           record.service?.includes('Emergency') ? '99285' : '99214'}
+                        </td>
+                        <td className="px-4 py-2 text-gray-600 font-mono text-[10px]">
+                          {record.icd10 || (record.diagnosis?.includes('vertebr') ? 'S22.0' : 
+                           record.diagnosis?.includes('fracture') ? 'S32.0' : 'S39.92')}
+                        </td>
+                        <td className="px-4 py-2 text-right text-gray-900 font-semibold">{formatCurrency(record.amount)}</td>
+                        <td className="px-4 py-2 text-center">
+                          <span className="px-2 py-0.5 text-[10px] border border-gray-300 rounded text-gray-600">Billed</span>
+                        </td>
+                        <td className="px-4 py-2">
+                          {hasSource ? (
+                            <button
+                              onClick={() => handleViewSource(record.provider)}
+                              className="inline-flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 hover:border-gray-300 hover:text-gray-900 transition-all"
+                            >
+                              View
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-gray-400 italic">No source</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-gray-50">
                   <tr className="font-semibold border-t-2 border-gray-300">

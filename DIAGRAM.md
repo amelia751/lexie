@@ -6,6 +6,476 @@ This document contains visual representations of the Lexie AI Legal Intake Syste
 
 ---
 
+## 0. Complete System Architecture (High-Level Overview)
+
+This diagram shows how all components connect: Frontend → Backend → Google AI Platform → Firestore.
+
+### Mermaid Diagram (Renders as Visual Flowchart)
+
+```mermaid
+flowchart TB
+    subgraph Frontend["🖥️ FRONTEND (Next.js 16 + React 19)"]
+        VoiceUI["🎤 Voice Chat UI<br/>• Microphone<br/>• Transcripts<br/>• Audio Player"]
+        TabCanvas["📊 Tab Canvas<br/>• Summary View<br/>• Timeline View<br/>• Medical View<br/>• Evidence View<br/>• Damages View"]
+        FileExp["📁 File Explorer<br/>• Document Upload<br/>• Provenance Tracking"]
+        LiveContext["🔄 Live Case Context<br/>• State Management<br/>• Real-time Updates<br/>• Deduplication"]
+    end
+
+    subgraph WebSocket["🔌 WEBSOCKET LAYER"]
+        WSUp["⬆️ Client → Server<br/>• Audio: 16kHz PCM<br/>• JSON: text, end_turn"]
+        WSDown["⬇️ Server → Client<br/>• Audio: 24kHz PCM<br/>• JSON: transcripts, live_update"]
+    end
+
+    subgraph Backend["⚙️ BACKEND (FastAPI + Python 3.12)"]
+        GeminiLiveSvc["🎙️ Gemini Live Service<br/>• ADK Runner<br/>• Session Management<br/>• Audio Routing"]
+        RAGSvc["📚 RAG Service<br/>• Vertex AI RAG<br/>• Document Upload<br/>• Grounded Generation"]
+        DocProc["📄 Document Processor<br/>• Base64 Decode<br/>• Vision Extraction<br/>• Deduplication"]
+        EvidenceHub["🗄️ Evidence Hub<br/>(Singleton State)<br/>• Case Facts<br/>• Evidence Checklist<br/>• Damages<br/>• Timeline"]
+    end
+
+    subgraph GoogleAI["✨ GOOGLE AI PLATFORM"]
+        direction TB
+
+        subgraph ADK["🤖 Google ADK"]
+            Runner["Runner<br/>• stream_live()<br/>• Orchestration"]
+            Queue["LiveRequestQueue<br/>• send_realtime()<br/>• send_content()"]
+            Session["SessionService<br/>• Conversation History"]
+        end
+
+        subgraph Agents["👥 Multi-Agent System"]
+            RootAgent["🎯 ROOT AGENT<br/>(Lexie - gemini-2.5-flash)<br/>17 tools"]
+            EvidenceAgent["🔍 EVIDENCE AGENT<br/>5 tools<br/>• RAG Analysis<br/>• Vision AI"]
+            DamagesAgent["💰 DAMAGES AGENT<br/>4 tools<br/>• Code Execution<br/>• Calculations"]
+        end
+
+        GeminiLive["🎤 Gemini Live API<br/>(gemini-2.5-flash-native-audio)<br/>• Speech ↔ Text<br/>• Interruption Handling<br/>• VAD"]
+        VertexRAG["📖 Vertex AI RAG Engine<br/>(europe-west4)<br/>• Document Indexing<br/>• Semantic Search<br/>• Source Citation"]
+        GeminiVision["👁️ Gemini Vision API<br/>(gemini-2.5-flash)<br/>• Image Analysis<br/>• Text Extraction<br/>• Safety Hazards"]
+    end
+
+    subgraph Firestore["🔥 FIRESTORE (Planned)"]
+        CasesCol["📁 /cases/{caseId}/<br/>• facts<br/>• checklist/<br/>• damages<br/>• timeline/<br/>• metadata"]
+        DocsCol["📁 /documents/{docId}/<br/>• metadata<br/>• analysis<br/>• provenance"]
+    end
+
+    %% Frontend connections
+    VoiceUI --> LiveContext
+    TabCanvas --> LiveContext
+    FileExp --> LiveContext
+    LiveContext <-->|WebSocket| WSUp
+    WSDown <-->|WebSocket| LiveContext
+
+    %% WebSocket to Backend
+    WSUp --> GeminiLiveSvc
+    GeminiLiveSvc --> WSDown
+
+    %% Backend connections
+    GeminiLiveSvc --> Runner
+    GeminiLiveSvc --> Queue
+    Runner --> RootAgent
+    Queue --> GeminiLive
+    GeminiLive --> Queue
+
+    FileExp -->|Document Upload| DocProc
+    DocProc --> RAGSvc
+    DocProc --> GeminiVision
+
+    RAGSvc --> VertexRAG
+
+    %% Agent orchestration
+    RootAgent --> EvidenceAgent
+    RootAgent --> DamagesAgent
+    EvidenceAgent --> VertexRAG
+    EvidenceAgent --> GeminiVision
+
+    %% All agents write to Evidence Hub
+    RootAgent --> EvidenceHub
+    EvidenceAgent --> EvidenceHub
+    DamagesAgent --> EvidenceHub
+
+    %% Evidence Hub to Firestore
+    EvidenceHub -.->|Persist State<br/>(Planned)| CasesCol
+    DocProc -.->|Store Documents<br/>(Planned)| DocsCol
+
+    %% Firestore to Frontend
+    CasesCol -.->|Real-time Sync<br/>(Planned)| LiveContext
+    DocsCol -.->|Real-time Sync<br/>(Planned)| LiveContext
+
+    %% Styling
+    classDef frontend fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    classDef backend fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
+    classDef google fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
+    classDef firestore fill:#FCE4EC,stroke:#C2185B,stroke-width:2px
+    classDef planned stroke-dasharray: 5 5
+
+    class VoiceUI,TabCanvas,FileExp,LiveContext frontend
+    class GeminiLiveSvc,RAGSvc,DocProc,EvidenceHub backend
+    class Runner,Queue,Session,RootAgent,EvidenceAgent,DamagesAgent,GeminiLive,VertexRAG,GeminiVision google
+    class CasesCol,DocsCol firestore
+```
+
+### Simplified Architecture Diagram (Text Version)
+
+```
+USER INTERFACE
+    │
+    │ WebSocket (wss://)
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  FRONTEND (Next.js + React)                                     │
+│  • Voice Chat UI      • Tab Canvas        • File Explorer       │
+│  • Live Case Context (state management)                         │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             │ WebSocket
+                             │ Audio: 16kHz (↑) / 24kHz (↓)
+                             │ JSON: messages, live updates
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  BACKEND (FastAPI + Python)                                     │
+│  ┌───────────────────┐  ┌────────────────────────────────────┐ │
+│  │ Gemini Live Svc   │  │   Evidence Hub (Singleton)         │ │
+│  │ • ADK Runner      │──│   • Case Facts (in-memory)         │ │
+│  │ • Audio Routing   │  │   • Evidence Checklist             │ │
+│  │ • Session Mgmt    │  │   • Damages Estimates              │ │
+│  └───────────────────┘  │   • Timeline Events                │ │
+│                         │          │                         │ │
+│  ┌───────────────────┐  │          │ Persist       │ │
+│  │ RAG Service       │  │          ▼                         │ │
+│  │ Document Processor│  │   ┌──────────────────────────┐    │ │
+│  └───────────────────┘  │   │ FIRESTORE (GCP)          │    │ │
+│                         │   │ • /cases/{id}/           │    │ │
+│                         │   │ • /documents/{id}/       │    │ │
+└─────────────────────────┴───┴──────────────────────────┴────┘ │
+                             │                                   │
+                             │ API Calls                         │
+                             ▼                                   │
+┌─────────────────────────────────────────────────────────────────┐
+│  GOOGLE AI PLATFORM                                             │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  GOOGLE ADK (Agent Development Kit)                      │  │
+│  │  ┌────────────┐  ┌────────────────┐  ┌────────────────┐ │  │
+│  │  │   Runner   │  │ Request Queue  │  │ Session Svc    │ │  │
+│  │  └────────────┘  └────────────────┘  └────────────────┘ │  │
+│  │                                                          │  │
+│  │  Multi-Agent System:                                     │  │
+│  │  ┌──────────────────────────────────────────────────┐   │  │
+│  │  │ ROOT AGENT (Lexie)                                │   │  │
+│  │  │ • 17 tools for intake orchestration              │   │  │
+│  │  │      │                        │                   │   │  │
+│  │  │      ▼                        ▼                   │   │  │
+│  │  │  EVIDENCE AGENT          DAMAGES AGENT           │   │  │
+│  │  │  • 5 tools               • 4 tools               │   │  │
+│  │  │  • RAG + Vision          • Code Execution        │   │  │
+│  │  └──────────────────────────────────────────────────┘   │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│           │                   │                  │             │
+│           ▼                   ▼                  ▼             │
+│  ┌──────────────┐  ┌──────────────────┐  ┌────────────────┐  │
+│  │ Gemini Live  │  │ Vertex AI RAG    │  │ Gemini Vision  │  │
+│  │     API      │  │     Engine       │  │      API       │  │
+│  │              │  │                  │  │                │  │
+│  │ • Voice I/O  │  │ • Doc Storage    │  │ • Image        │  │
+│  │ • 16kHz→24kHz│  │ • Semantic Search│  │   Analysis     │  │
+│  │ • Interrupts │  │ • Grounded Gen   │  │ • Text Extract │  │
+│  └──────────────┘  └──────────────────┘  └────────────────┘  │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+
+
+DATA FLOW:
+1. User speaks → Frontend (16kHz audio) → WebSocket → Backend
+2. Backend → LiveRequestQueue → Gemini Live API
+3. Gemini → Root Agent → Evidence/Damages Agents
+4. Agents use Vertex RAG + Vision for analysis
+5. All agents write to Evidence Hub (in-memory)
+6. Evidence Hub persists to Firestore 
+7. Firestore syncs to Frontend in real-time 
+8. Gemini returns audio (24kHz) → Frontend plays
+```
+
+### Old Detailed ASCII Diagram (Reference)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        LEXIE COMPLETE SYSTEM ARCHITECTURE                        │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                              FRONTEND LAYER                                       │
+│                          (Next.js 16 + React 19)                                  │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│   ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐                │
+│   │  Voice Chat UI  │  │  Tab Canvas      │  │ File Explorer   │                │
+│   │  - Microphone   │  │  - Summary       │  │ - Upload        │                │
+│   │  - Transcripts  │  │  - Timeline      │  │ - Documents     │                │
+│   │  - Audio Player │  │  - Medical       │  │ - Provenance    │                │
+│   │  - Upload Cards │  │  - Evidence      │  │                 │                │
+│   │                 │  │  - Damages       │  │                 │                │
+│   └─────────────────┘  └──────────────────┘  └─────────────────┘                │
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │               Live Case Context (State Management)                        │  │
+│   │  • Case facts, Timeline events, Medical records                           │  │
+│   │  • Evidence checklist, Damages estimates                                  │  │
+│   │  • Real-time deduplication and tab orchestration                          │  │
+│   └───────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                   │
+└───────────────────────────────┬───────────────────────────────────────────────────┘
+                                │
+                                │
+                        WebSocket (wss://)
+                                │
+                    ┌───────────┼───────────┐
+                    │                       │
+         Audio: 16kHz PCM (↑)    JSON: live_update,
+         Audio: 24kHz PCM (↓)    transcripts, tool_calls
+                    │                       │
+                    └───────────┬───────────┘
+                                │
+┌───────────────────────────────▼───────────────────────────────────────────────────┐
+│                            BACKEND LAYER                                          │
+│                        (FastAPI + Python 3.12)                                    │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │                     WebSocket Router Layer                                │  │
+│   │                                                                           │  │
+│   │   /api/v1/gemini-live/{client_id}  → Gemini Live Service                 │  │
+│   │   /api/v1/intake/{client_id}       → Text Intake Service                 │  │
+│   └───────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │                         Core Services                                     │  │
+│   │                                                                           │  │
+│   │   ┌─────────────────────┐  ┌──────────────────────────────────────────┐  │  │
+│   │   │ Gemini Live Service │  │     Evidence Hub (Singleton)             │  │  │
+│   │   │ - ADK Runner        │  │                                          │  │  │
+│   │   │ - Session Mgmt      │  │  ┌────────────────────────────────────┐  │  │  │
+│   │   │ - Audio Routing     │  │  │  In-Memory State (Current):        │  │  │  │
+│   │   │ - Tool Calling      │  │  │  • Case Facts (CaseFacts)          │  │  │  │
+│   │   └─────────────────────┘  │  │  • Evidence Checklist (List)       │  │  │  │
+│   │                            │  │  • Damages Estimates               │  │  │  │
+│   │   ┌─────────────────────┐  │  │  • Timeline Events                 │  │  │  │
+│   │   │  RAG Service        │  │  │  • Current Document Request        │  │  │  │
+│   │   │ - Vertex AI RAG     │  │  └────────────────────────────────────┘  │  │  │
+│   │   │ - Doc Upload        │  │           │                              │  │  │
+│   │   │ - Grounded Gen      │  │           │ PERSIST TO                   │  │  │
+│   │   └─────────────────────┘  │           ▼                              │  │  │
+│   │                            │  ┌────────────────────────────────────┐  │  │  │
+│   │   ┌─────────────────────┐  │  │  Firestore (Planned):              │  │  │  │
+│   │   │ Document Processor  │  │  │  • /cases/{caseId}/facts           │  │  │  │
+│   │   │ - Base64 Decode     │  │  │  • /cases/{caseId}/checklist/      │  │  │  │
+│   │   │ - Vision Extract    │  │  │  • /cases/{caseId}/damages         │  │  │  │
+│   │   │ - Deduplication     │  │  │  • /documents/{docId}/metadata     │  │  │  │
+│   │   └─────────────────────┘  │  │  • /documents/{docId}/analysis     │  │  │  │
+│   │                            │  │  • Real-time sync to frontend      │  │  │  │
+│   │                            │  └────────────────────────────────────┘  │  │  │
+│   └───────────────────────────┴──────────────────────────────────────────────┘  │
+│                                                                                   │
+└───────────────────────────────┬───────────────────────────────────────────────────┘
+                                │
+                                │
+                        Calls Google APIs
+                                │
+                                ▼
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                         GOOGLE AI PLATFORM                                        │
+│                        (Google Cloud Platform)                                    │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │              Google ADK (Agent Development Kit)                           │  │
+│   ├───────────────────────────────────────────────────────────────────────────┤  │
+│   │                                                                           │  │
+│   │   ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐    │  │
+│   │   │     Runner       │   │ LiveRequestQueue │   │ SessionService   │    │  │
+│   │   │ - stream_live()  │   │ - send_realtime()│   │ - create/get     │    │  │
+│   │   │ - Orchestration  │   │ - send_content() │   │ - Conversation   │    │  │
+│   │   └──────────────────┘   └──────────────────┘   │   history        │    │  │
+│   │                                                  └──────────────────┘    │  │
+│   │                                                                           │  │
+│   │   ┌───────────────────────────────────────────────────────────────────┐  │  │
+│   │   │                    Multi-Agent System                             │  │  │
+│   │   │                                                                   │  │  │
+│   │   │   ┌───────────────────────────────────────────────────────────┐   │  │  │
+│   │   │   │          ROOT AGENT (Lexie - Live Agent)                  │   │  │  │
+│   │   │   │          Model: gemini-2.5-flash                          │   │  │  │
+│   │   │   │          17 Tools for intake orchestration                │   │  │  │
+│   │   │   └─────────────────────┬─────────────────────────────────────┘   │  │  │
+│   │   │                         │                                         │  │  │
+│   │   │            ┌────────────┴────────────┐                            │  │  │
+│   │   │            │                         │                            │  │  │
+│   │   │   ┌────────▼─────────┐    ┌─────────▼────────┐                   │  │  │
+│   │   │   │ EVIDENCE AGENT   │    │  DAMAGES AGENT   │                   │  │  │
+│   │   │   │ - 5 Tools        │    │  - 4 Tools       │                   │  │  │
+│   │   │   │ - RAG Analysis   │    │  - Code Exec     │                   │  │  │
+│   │   │   │ - Vision AI      │    │  - Calculations  │                   │  │  │
+│   │   │   └──────────────────┘    └──────────────────┘                   │  │  │
+│   │   │                                                                   │  │  │
+│   │   └───────────────────────────────────────────────────────────────────┘  │  │
+│   │                                                                           │  │
+│   └───────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │                        Gemini Live API                                    │  │
+│   │                  (gemini-2.5-flash-native-audio)                          │  │
+│   ├───────────────────────────────────────────────────────────────────────────┤  │
+│   │                                                                           │  │
+│   │   ↑ Input:  16kHz PCM Audio → Speech Recognition → Text                  │  │
+│   │   ↓ Output: Text → Voice Synthesis → 24kHz PCM Audio                     │  │
+│   │                                                                           │  │
+│   │   Features:                                                               │  │
+│   │   • Bidirectional streaming                                               │  │
+│   │   • Interruption-aware turn management                                    │  │
+│   │   • Built-in VAD (Voice Activity Detection)                               │  │
+│   │   • Tool calling orchestration                                            │  │
+│   │   • Conversation context management                                       │  │
+│   │                                                                           │  │
+│   └───────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │               Vertex AI RAG Engine (europe-west4)                         │  │
+│   ├───────────────────────────────────────────────────────────────────────────┤  │
+│   │                                                                           │  │
+│   │   Corpus: lexie-legal-evidence                                            │  │
+│   │                                                                           │  │
+│   │   Features:                                                               │  │
+│   │   • Document indexing & chunking (automatic)                              │  │
+│   │   • Semantic search (similarity scoring)                                  │  │
+│   │   • Grounded generation (source citation)                                 │  │
+│   │   • Hash-based deduplication                                              │  │
+│   │   • Stores PDFs, images, medical records, incident reports                │  │
+│   │                                                                           │  │
+│   │   ↑ Evidence Agent uploads documents                                      │  │
+│   │   ↓ Evidence Agent queries for fact extraction                            │  │
+│   │                                                                           │  │
+│   └───────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │                      Gemini Vision API                                    │  │
+│   │                     (gemini-2.5-flash)                                    │  │
+│   ├───────────────────────────────────────────────────────────────────────────┤  │
+│   │                                                                           │  │
+│   │   Features:                                                               │  │
+│   │   • Extract text from images (medical bills, forms)                       │  │
+│   │   • Analyze accident scene photos                                         │  │
+│   │   • Identify safety hazards                                               │  │
+│   │   • Assess injury severity from medical imaging                           │  │
+│   │   • Structured data extraction (JSON output)                              │  │
+│   │                                                                           │  │
+│   │   ↑ Evidence Agent sends images for analysis                              │  │
+│   │   ↓ Returns extracted facts (provider, amounts, dates, diagnoses)         │  │
+│   │                                                                           │  │
+│   └───────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+                                        │
+                                        │
+                            Persistence Layer (Planned)
+                                        │
+                                        ▼
+
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                          GOOGLE CLOUD FIRESTORE                                   │
+│                           (NoSQL Real-time Database)                              │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│   Collection Structure:                                                           │
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │  /cases/{caseId}/                                                         │  │
+│   │    ├─ facts (document)                                                    │  │
+│   │    │   • plaintiffName, plaintiffAge, plaintiffOccupation                 │  │
+│   │    │   • incidentDate, incidentLocation, incidentDescription              │  │
+│   │    │   • injuries[], injurySeverity                                       │  │
+│   │    │   • medicalExpenses, lostWages                                       │  │
+│   │    │   • witnesses[], safetyViolations[]                                  │  │
+│   │    │                                                                      │  │
+│   │    ├─ checklist/ (subcollection)                                          │  │
+│   │    │   ├─ {itemId} (document)                                             │  │
+│   │    │   │   • type, description, status, priority                          │  │
+│   │    │   │   • documentPath, analysisSummary                                │  │
+│   │    │   │   • uploadedAt, analyzedAt                                       │  │
+│   │    │                                                                      │  │
+│   │    ├─ damages (document)                                                  │  │
+│   │    │   • economicDamages (medical, wages, future)                         │  │
+│   │    │   • nonEconomicDamages (multiplier, amount)                          │  │
+│   │    │   • settlementRange (low, mid, high)                                 │  │
+│   │    │   • calculatedAt, methodology                                        │  │
+│   │    │                                                                      │  │
+│   │    ├─ timeline/ (subcollection)                                           │  │
+│   │    │   ├─ {eventId} (document)                                            │  │
+│   │    │   │   • date, event, category, source                                │  │
+│   │    │                                                                      │  │
+│   │    └─ metadata (document)                                                 │  │
+│   │        • createdAt, updatedAt, status                                     │  │
+│   │        • assignedAttorney, caseType                                       │  │
+│   └───────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                   │
+│   ┌───────────────────────────────────────────────────────────────────────────┐  │
+│   │  /documents/{docId}/                                                      │  │
+│   │    ├─ metadata (document)                                                 │  │
+│   │    │   • fileName, fileSize, mimeType                                     │  │
+│   │    │   • uploadedAt, uploadedBy                                           │  │
+│   │    │   • docType (medical_records, incident_report, etc.)                 │  │
+│   │    │   • linkedCaseId, storagePath                                        │  │
+│   │    │                                                                      │  │
+│   │    ├─ analysis (document)                                                 │  │
+│   │    │   • extractedFacts {}, confidence                                    │  │
+│   │    │   • processingTime, agentUsed                                        │  │
+│   │    │   • analyzedAt                                                       │  │
+│   │    │                                                                      │  │
+│   │    └─ provenance (document)                                               │  │
+│   │        • sourceCase, linkedEvidence[]                                     │  │
+│   │        • citedInTimeline[], citedInDamages                                │  │
+│   └───────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                   │
+│   Features:                                                                       │
+│   • Real-time listeners (frontend auto-updates when data changes)                │
+│   • Offline support with local cache                                             │
+│   • Scalable NoSQL structure (flexible schema)                                   │
+│   • Automatic indexing                                                            │
+│   • ACID transactions for critical updates                                       │
+│   • Security rules for access control                                            │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+                                        │
+                                        │
+                            Real-time Sync (↑↓)
+                                        │
+                                        ▼
+
+                                Frontend subscribes
+                                to Firestore changes
+                            → Auto-update UI instantly
+
+
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                             DATA FLOW SUMMARY                                     │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│  1. User speaks → Frontend captures audio (16kHz) → WebSocket                    │
+│  2. Backend receives → LiveRequestQueue.send_realtime() → Gemini Live API         │
+│  3. Gemini processes speech → Calls Root Agent tools                              │
+│  4. Root Agent delegates to Evidence/Damages Agents                               │
+│  5. Evidence Agent: RAG query (Vertex AI) + Vision analysis (if image)            │
+│  6. Damages Agent: Code execution for settlement calculation                      │
+│  7. All agents write to Evidence Hub (in-memory state)                            │
+│  8. Evidence Hub persists to Firestore (planned)                                  │
+│  9. Firestore real-time listener → Frontend auto-updates                          │
+│  10. Gemini Live API returns audio (24kHz) → WebSocket → Frontend plays           │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 1. Main Multi-Agent Architecture
 
 ```

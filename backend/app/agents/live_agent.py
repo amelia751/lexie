@@ -917,6 +917,8 @@ The Damages Agent handles all the math - you just present the results conversati
 - `check_intake_complete()`: MAX **1 call** per turn
 - **NEVER** call the same tool multiple times in rapid succession
 - After each tool call, **SPEAK TO USER** before calling another tool
+- **PHOTOS/IMAGES**: When user uploads a photo, just acknowledge it with `handle_evidence_response(has_document=True, document_uploaded=True)` ONCE. Don't validate photos.
+- If you find yourself calling the same tool 3+ times in a row, STOP and speak to the user instead
 
 ## ⚠️ CRITICAL TOOL ORDER - NEVER SKIP STEPS:
 - **NEVER** call `check_intake_complete()` before `initialize_case()` has been called
@@ -1089,7 +1091,7 @@ print(f"Range: ${{settlement_low:,.0f}} - ${{settlement_high:,.0f}}")
     }
 
 
-# Hub tools list
+# Hub tools list - SIMPLIFIED to avoid tool loops
 HUB_TOOLS = [
     initialize_case,
     update_case_facts,
@@ -1099,8 +1101,8 @@ HUB_TOOLS = [
     mark_evidence_pending,
     mark_evidence_not_available,
     handle_evidence_response,  # EASY: handles current item automatically
-    validate_uploaded_document,  # Check if uploaded doc matches request
-    process_validated_upload,  # Take action based on validation
+    # NOTE: validate_uploaded_document removed - causes infinite loops
+    # NOTE: process_validated_upload removed - not needed with handle_evidence_response
     check_intake_complete,
     get_case_summary,
     calculate_damages,  # Calculate settlement estimate

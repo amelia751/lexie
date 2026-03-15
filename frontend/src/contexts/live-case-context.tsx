@@ -50,11 +50,12 @@ export interface LiveMedicalRecord {
   id: string;
   date: string;
   provider: string;
-  service: string;
+  service?: string;
   amount: number;
   diagnosis?: string;
-  source?: string;       // Document name (e.g., "ER Records", "Doctor's Report")
-  sourceFileId?: string; // Links to the file in explorer for click-to-highlight
+  icd10?: string;         // ICD-10 code (e.g., "S22.0", "S06.0")
+  source?: string;        // Document name (e.g., "ER Records", "Doctor's Report")
+  sourceFileId?: string;  // Links to the file in explorer for click-to-highlight
   addedAt: number;
 }
 
@@ -64,6 +65,9 @@ export interface LiveDamagesEstimate {
   lostWages?: number;
   painAndSuffering?: number;
   propertyDamage?: number;
+  economicDamages?: number;
+  nonEconomicDamages?: number;
+  totalEstimate?: number;
   settlementLow?: number;
   settlementHigh?: number;
   calculatedAt?: number;
@@ -104,13 +108,13 @@ interface LiveCaseContextType {
   damagesEstimate: LiveDamagesEstimate;
   uploadedFiles: LiveUploadedFile[]; // Files in the explorer panel
   
-  // Progressive update methods
-  updateCaseFact: (field: keyof LiveCaseFacts, value: any) => void;
-  addEvidenceItem: (item: Omit<LiveEvidenceItem, 'addedAt'>) => void;
+  // Progressive update methods (autoSwitch defaults: most false, damages true)
+  updateCaseFact: (field: keyof LiveCaseFacts, value: any, autoSwitch?: boolean) => void;
+  addEvidenceItem: (item: Omit<LiveEvidenceItem, 'addedAt'>, autoSwitch?: boolean) => void;
   updateEvidenceStatus: (id: string, status: LiveEvidenceItem['status']) => void;
-  addTimelineEvent: (event: Omit<LiveTimelineEvent, 'addedAt'>) => void;
-  addMedicalRecord: (record: Omit<LiveMedicalRecord, 'addedAt'>) => void;
-  updateDamages: (damages: Partial<LiveDamagesEstimate>) => void;
+  addTimelineEvent: (event: Omit<LiveTimelineEvent, 'addedAt'>, autoSwitch?: boolean) => void;
+  addMedicalRecord: (record: Omit<LiveMedicalRecord, 'addedAt'>, autoSwitch?: boolean) => void;
+  updateDamages: (damages: Partial<LiveDamagesEstimate>, autoSwitch?: boolean) => void;
   
   // File upload methods
   addUploadedFile: (file: Omit<LiveUploadedFile, 'id' | 'uploadedAt'>) => string;
@@ -199,19 +203,23 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     }, 2000);
   }, []);
 
-  const updateCaseFact = useCallback((field: keyof LiveCaseFacts, value: any) => {
+  const updateCaseFact = useCallback((field: keyof LiveCaseFacts, value: any, autoSwitch: boolean = false) => {
     setCaseFacts(prev => ({ ...prev, [field]: value }));
     setLastUpdatedField(`caseFacts.${field}`);
     setLastUpdatedTab('summary');
     clearUpdateHighlight();
     
-    // Only auto-switch tabs during active session
+    // Always add tab to open list during session
     if (isSessionActive) {
-      setActiveTab('summary');
+      openTab('summary');
+      // Only switch to it if autoSwitch requested
+      if (autoSwitch) {
+        setActiveTabState('summary');
+      }
     }
-  }, [clearUpdateHighlight, setActiveTab, isSessionActive]);
+  }, [clearUpdateHighlight, openTab, isSessionActive]);
 
-  const addEvidenceItem = useCallback((item: Omit<LiveEvidenceItem, 'addedAt'>) => {
+  const addEvidenceItem = useCallback((item: Omit<LiveEvidenceItem, 'addedAt'>, autoSwitch: boolean = false) => {
     setEvidenceItems(prev => {
       // Check for duplicate by ID
       if (prev.some(e => e.id === item.id)) {
@@ -224,11 +232,14 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     setLastUpdatedTab('evidence');
     clearUpdateHighlight();
     
-    // Only auto-switch tabs during active session
+    // Always add tab to open list during session
     if (isSessionActive) {
-      setActiveTab('evidence');
+      openTab('evidence');
+      if (autoSwitch) {
+        setActiveTabState('evidence');
+      }
     }
-  }, [clearUpdateHighlight, setActiveTab, isSessionActive]);
+  }, [clearUpdateHighlight, openTab, isSessionActive]);
 
   const updateEvidenceStatus = useCallback((id: string, status: LiveEvidenceItem['status']) => {
     setEvidenceItems(prev => 
@@ -238,7 +249,7 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     clearUpdateHighlight();
   }, [clearUpdateHighlight]);
 
-  const addTimelineEvent = useCallback((event: Omit<LiveTimelineEvent, 'addedAt'>) => {
+  const addTimelineEvent = useCallback((event: Omit<LiveTimelineEvent, 'addedAt'>, autoSwitch: boolean = false) => {
     setTimelineEvents(prev => {
       // Check for duplicate - same id or same date+event combo
       const isDuplicate = prev.some(e => 
@@ -258,13 +269,16 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     setLastUpdatedTab('timeline');
     clearUpdateHighlight();
     
-    // Only auto-switch tabs during active session
+    // Always add tab to open list during session
     if (isSessionActive) {
-      setActiveTab('timeline');
+      openTab('timeline');
+      if (autoSwitch) {
+        setActiveTabState('timeline');
+      }
     }
-  }, [clearUpdateHighlight, setActiveTab, isSessionActive]);
+  }, [clearUpdateHighlight, openTab, isSessionActive]);
 
-  const addMedicalRecord = useCallback((record: Omit<LiveMedicalRecord, 'addedAt'>) => {
+  const addMedicalRecord = useCallback((record: Omit<LiveMedicalRecord, 'addedAt'>, autoSwitch: boolean = false) => {
     setMedicalRecords(prev => {
       // Check for duplicate by ID
       if (prev.some(r => r.id === record.id)) {
@@ -279,23 +293,30 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     setLastUpdatedTab('medical');
     clearUpdateHighlight();
     
-    // Only auto-switch tabs during active session
+    // Always add tab to open list during session
     if (isSessionActive) {
-      setActiveTab('medical');
+      openTab('medical');
+      if (autoSwitch) {
+        setActiveTabState('medical');
+      }
     }
-  }, [clearUpdateHighlight, setActiveTab, isSessionActive]);
+  }, [clearUpdateHighlight, openTab, isSessionActive]);
 
-  const updateDamages = useCallback((damages: Partial<LiveDamagesEstimate>) => {
+  const updateDamages = useCallback((damages: Partial<LiveDamagesEstimate>, autoSwitch: boolean = true) => {
     setDamagesEstimate(prev => ({ ...prev, ...damages, calculatedAt: Date.now() }));
     setLastUpdatedField('damages');
     setLastUpdatedTab('damages');
     clearUpdateHighlight();
     
-    // Only auto-switch tabs during active session
+    // Always add tab to open list during session
     if (isSessionActive) {
-      setActiveTab('damages');
+      openTab('damages');
+      // Auto-switch to damages tab when damages are calculated (significant event)
+      if (autoSwitch) {
+        setActiveTabState('damages');
+      }
     }
-  }, [clearUpdateHighlight, setActiveTab, isSessionActive]);
+  }, [clearUpdateHighlight, openTab, isSessionActive]);
 
   const addUploadedFile = useCallback((file: Omit<LiveUploadedFile, 'id' | 'uploadedAt'>): string => {
     const id = `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
