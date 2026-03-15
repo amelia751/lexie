@@ -693,7 +693,7 @@ class GeminiLiveService:
                                     
                                     # Set document processing window
                                     import time
-                                    turn_state["doc_processing_until"] = time.time() + 5
+                                    turn_state["doc_processing_until"] = time.time() + 10  # 10s window for doc processing
                                     turn_state["doc_speech_started"] = False
                                     turn_state["doc_speech_finished"] = False
                                     
@@ -751,7 +751,7 @@ class GeminiLiveService:
                                         })
                                         
                                         import time
-                                        turn_state["doc_processing_until"] = time.time() + 5
+                                        turn_state["doc_processing_until"] = time.time() + 10  # 10s window for doc processing
                                         turn_state["doc_speech_started"] = False
                                         turn_state["doc_speech_finished"] = False
                                         
@@ -872,6 +872,7 @@ I've calculated the damages estimate:
                     "last_turn_sent": -1,  # Which msg's turn_complete we've sent
                     "response_for_msg": -1,  # Which msg we've started responding to
                     "response_text_sent": "",  # Track what text we've already sent
+                    "last_response_time": 0,  # Timestamp when we sent the last response
                     "last_state_hash": "",  # For deduplicating live_updates
                     "interrupted_at_msg": -1,  # Track which turn was interrupted
                     "doc_processing_until": 0,  # Timestamp until which we enforce single response
@@ -880,6 +881,7 @@ I've calculated the damages estimate:
                     "last_response_ended": 0,  # Timestamp when last response finished (for cooldown)
                     "response_cooldown": 0.5,  # Seconds to wait between responses
                     "turn_complete_speech": False,  # True once we've sent a complete speech for this turn
+                    "speech_completed_at": 0,  # Timestamp of last speech completion (for blocking duplicates)
                 }
                 
                 def get_state_hash(state: dict) -> str:
@@ -1024,8 +1026,36 @@ I've calculated the damages estimate:
                                 # Track doc speech state
                                 in_doc_window = time.time() < turn_state["doc_processing_until"]
                                 
+                                # CRITICAL: Block duplicate responses for the SAME turn
+                                # If we already have substantial text AND this doesn't continue it, block
+                                existing_text = turn_state["response_text_sent"]
+                                if existing_text and len(existing_text) > 30:
+                                    # Check if this is a continuation or a duplicate
+                                    if not response_text.startswith(existing_text):
+                                        # Not a continuation - check if it's similar content (duplicate)
+                                        # Block if we're in doc window OR response happened recently
+                                        time_since_response = time.time() - turn_state.get("last_response_time", 0)
+                                        if in_doc_window or time_since_response < 10.0:
+                                            logger.info(f"[BLOCKED DUPLICATE] Already sent response, blocking: '{response_text[:40]}...'")
+                                            continue
+                                
                                 # Check if this is a NEW response for a NEW turn (after any interruption)
                                 if resp_msg < current_msg:
+                                    # CRITICAL: During doc processing window, block ALL new responses
+                                    # Only allow the FIRST response for a document
+                                    if in_doc_window:
+                                        if turn_state["doc_speech_started"]:
+                                            # We've already started a response during doc processing - block new ones
+                                            logger.info(f"[BLOCKED] Additional response during doc window")
+                                            continue
+                                    
+                                    # ALSO block if we recently completed speech (time-based fallback)
+                                    # Use 10s window to match doc processing window
+                                    time_since_speech = time.time() - turn_state.get("speech_completed_at", 0)
+                                    if turn_state.get("speech_completed_at", 0) > 0 and time_since_speech < 10.0:
+                                        logger.info(f"[BLOCKED] New turn too soon after speech ({time_since_speech:.1f}s)")
+                                        continue
+                                    
                                     # Check cooldown - don't start new response too quickly after previous
                                     time_since_last = time.time() - turn_state["last_response_ended"]
                                     cooldown = turn_state["response_cooldown"]
@@ -1038,6 +1068,7 @@ I've calculated the damages estimate:
                                     # This is a new turn! Reset blocking flags and accept
                                     turn_state["response_for_msg"] = current_msg
                                     turn_state["response_text_sent"] = response_text
+                                    turn_state["last_response_time"] = time.time()  # Track when we sent this
                                     turn_state["turn_complete_speech"] = False  # New turn, allow new speech
                                     logger.info(f"[New Response] Starting response for turn {current_msg}")
                                     
@@ -1055,6 +1086,7 @@ I've calculated the damages estimate:
                                     # Mark speech as finished if this is the final transcript
                                     if is_finished:
                                         turn_state["turn_complete_speech"] = True
+                                        turn_state["speech_completed_at"] = time.time()  # Track completion time
                                         logger.info(f"[Speech Complete] Blocking additional responses for turn {current_msg}")
                                         if in_doc_window:
                                             turn_state["doc_speech_finished"] = True
@@ -1068,6 +1100,7 @@ I've calculated the damages estimate:
                                     new_text = response_text[len(turn_state["response_text_sent"]):]
                                     if new_text.strip():
                                         turn_state["response_text_sent"] = response_text
+                                        turn_state["last_response_time"] = time.time()  # Update time
                                         await websocket.send_json({
                                             "type": "transcript",
                                             "role": "assistant",
@@ -1078,12 +1111,21 @@ I've calculated the damages estimate:
                                         # Mark speech as finished if this is the final transcript
                                         if is_finished:
                                             turn_state["turn_complete_speech"] = True
+                                            turn_state["speech_completed_at"] = time.time()  # Track completion time
                                             logger.info(f"[Speech Complete] Blocking additional responses for turn")
                                             if in_doc_window:
                                                 turn_state["doc_speech_finished"] = True
                                 elif turn_state["turn_complete_speech"]:
                                     # We've already completed speech for this turn - block any new response
                                     logger.info(f"[BLOCKED] New response after speech complete: '{response_text[:50]}...'")
+                                    continue
+                                elif in_doc_window and turn_state["doc_speech_finished"]:
+                                    # During doc processing, block any non-continuation response after speech
+                                    logger.info(f"[BLOCKED] Response during doc window after speech: '{response_text[:50]}...'")
+                                    continue
+                                elif turn_state.get("speech_completed_at", 0) > 0 and time.time() - turn_state["speech_completed_at"] < 6.0:
+                                    # Block responses within 6s of speech completion (covers partial echoes)
+                                    logger.info(f"[BLOCKED] Response too soon after speech complete")
                                     continue
                                 elif turn_state["response_text_sent"] and len(turn_state["response_text_sent"]) > 50:
                                     # We already have a substantial response for this turn
@@ -1098,13 +1140,26 @@ I've calculated the damages estimate:
                                 # Increment message counter when user finishes speaking
                                 # This is critical for voice input - binary audio doesn't increment counter
                                 if is_finished:
-                                    turn_state["user_msg_count"] += 1
-                                    logger.info(f"[User Speech Complete] msg #{turn_state['user_msg_count']}")
+                                    # CRITICAL: During doc processing window, ignore short "speech" events
+                                    # These are often noise, agent's voice bleeding through, or false positives
+                                    import time
+                                    in_doc_window = time.time() < turn_state["doc_processing_until"]
+                                    speech_text = event.input_transcription.text.strip()
                                     
-                                    # Reset doc_speech flags - allow agent to respond to this new input
-                                    # This ensures verbal input (like "incorrect") gets a proper response
-                                    turn_state["doc_speech_started"] = False
-                                    turn_state["doc_speech_finished"] = False
+                                    if in_doc_window and len(speech_text) < 20:
+                                        # Very short speech during doc processing - likely noise
+                                        logger.info(f"[IGNORED] Short speech during doc window: '{speech_text[:30]}'")
+                                    else:
+                                        turn_state["user_msg_count"] += 1
+                                        logger.info(f"[User Speech Complete] msg #{turn_state['user_msg_count']}: '{speech_text[:30]}...'")
+                                        
+                                        # Reset ALL blocking flags - allow agent to respond to this new input
+                                        # This ensures verbal input (like "incorrect") gets a proper response
+                                        turn_state["doc_speech_started"] = False
+                                        turn_state["doc_speech_finished"] = False
+                                        turn_state["speech_completed_at"] = 0  # Allow new response
+                                        turn_state["last_response_time"] = 0  # Reset so new response isn't blocked
+                                        turn_state["response_text_sent"] = ""  # Clear previous response
                                 
                                 await websocket.send_json({
                                     "type": "transcript",
@@ -1141,14 +1196,47 @@ I've calculated the damages estimate:
                             
                             # Tool call events - notify frontend about tool calls
                             # Send state update only if state actually changed (deduplication)
+                            # RATE LIMITING: Prevent tool spam
                             if event.actions:
                                 func_calls = event.get_function_calls()
                                 if func_calls:
+                                    # Initialize tool tracking if needed
+                                    if "recent_tools" not in turn_state:
+                                        turn_state["recent_tools"] = []
+                                        turn_state["tool_counts"] = {}
+                                    
+                                    import time
+                                    current_time = time.time()
+                                    
                                     for fc in func_calls:
+                                        tool_name = fc.name
+                                        
+                                        # Track tool call count
+                                        turn_state["tool_counts"][tool_name] = turn_state["tool_counts"].get(tool_name, 0) + 1
+                                        
+                                        # RATE LIMIT: Skip if this tool was called too recently (within 0.5s)
+                                        recent = [(t, ts) for t, ts in turn_state["recent_tools"] if current_time - ts < 1.0]
+                                        turn_state["recent_tools"] = recent  # Clean up old entries
+                                        
+                                        same_tool_count = sum(1 for t, _ in recent if t == tool_name)
+                                        
+                                        # Skip if called more than 2 times in last second
+                                        if same_tool_count >= 2:
+                                            logger.warning(f"[TOOL_SPAM] Skipping {tool_name} (called {same_tool_count}x in 1s)")
+                                            continue
+                                        
+                                        # Skip if update_case_facts called more than 4 times total this session
+                                        if tool_name == "update_case_facts" and turn_state["tool_counts"].get(tool_name, 0) > 8:
+                                            if turn_state["tool_counts"][tool_name] % 3 != 0:  # Only show every 3rd
+                                                continue
+                                        
+                                        # Track this call
+                                        turn_state["recent_tools"].append((tool_name, current_time))
+                                        
                                         await websocket.send_json({
                                             "type": "tool_call",
-                                            "content": f"Calling {fc.name}...",
-                                            "tool": fc.name,
+                                            "content": f"Calling {tool_name}...",
+                                            "tool": tool_name,
                                             "args": dict(fc.args) if hasattr(fc, 'args') else {},
                                         })
                                     

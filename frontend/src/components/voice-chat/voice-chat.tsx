@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { mockConversationWithDocuments, type VoiceMessage } from '@/lib/mock-data';
-import { Mic, MicOff, Pause, PhoneForwarded, Upload, X, Clock, Wifi, WifiOff, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Mic, MicOff, Pause, PhoneForwarded, Upload, X, Clock, Wifi, WifiOff, ToggleLeft, ToggleRight, Framer, CloudCheck, PenOff } from 'lucide-react';
 import { useLiveCase, type LiveEvidenceItem, type LiveUploadedFile } from '@/contexts/live-case-context';
 import { useEvidence } from '@/contexts/evidence-context';
 
@@ -76,6 +76,7 @@ interface ChatMessage {
   content: string;
   timestamp: string;
   isLive?: boolean; // For streaming transcripts
+  icon?: 'tool' | 'success' | 'error'; // Icon type for system messages
   toolCall?: {
     name: string;
     args?: Record<string, unknown>;
@@ -337,11 +338,11 @@ export default function VoiceChat() {
   }, []);
 
   // Add system message
-  const addSystemMessage = useCallback((content: string) => {
+  const addSystemMessage = useCallback((content: string, icon?: 'tool' | 'success' | 'error') => {
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     setMessages((prev) => [
       ...prev,
-      { role: 'system', content, timestamp, isLive: false },
+      { role: 'system', content, timestamp, isLive: false, icon },
     ]);
   }, []);
 
@@ -557,8 +558,20 @@ export default function VoiceChat() {
           finalizeLiveTurn('agent', true);
           setStatus('Listening...');
         } else if (type === 'tool_call') {
-          addSystemMessage(`🔧 ${msg.content}`);
-          addDebugLog('TOOL_CALL', msg.tool || msg.content);
+          // Dedupe tool calls - don't show same tool twice in quick succession
+          const toolName = msg.tool || 'unknown';
+          const now = Date.now();
+          const recentKey = `tool_${toolName}`;
+          const lastCall = (window as unknown as Record<string, number>)[recentKey] || 0;
+          
+          // Skip if same tool called within 1 second
+          if (now - lastCall < 1000) {
+            addDebugLog('TOOL_CALL_SKIP', `Skipped duplicate: ${toolName}`);
+          } else {
+            (window as unknown as Record<string, number>)[recentKey] = now;
+            addSystemMessage(msg.content, 'tool');
+            addDebugLog('TOOL_CALL', toolName);
+          }
         } else if (type === 'extraction_complete') {
           // Document extraction completed - show results
           const fileName = msg.file_name || 'document';
@@ -567,7 +580,7 @@ export default function VoiceChat() {
           const facts = msg.facts || {};
           
           addDebugLog('EXTRACTION', `${fileName} extracted in ${timeMs}ms`);
-          addSystemMessage(`✅ Extracted facts from ${fileName} (${(timeMs/1000).toFixed(1)}s)`);
+          addSystemMessage(`Extracted facts from ${fileName} (${(timeMs/1000).toFixed(1)}s)`, 'success');
           
           // Show key extracted facts
           const keyFacts = ['plaintiff_name', 'patient_name', 'incident_date', 'total_amount', 'diagnoses'];
@@ -598,7 +611,7 @@ export default function VoiceChat() {
           }
         } else if (type === 'error') {
           setError(msg.content);
-          addSystemMessage(`❌ ${msg.content}`);
+          addSystemMessage(msg.content, 'error');
         }
       } catch (e) {
         console.error('Parse error:', e);
@@ -1433,7 +1446,12 @@ export default function VoiceChat() {
                 {/* System messages */}
                 {message.role === 'system' ? (
                   <div className="flex justify-center my-2">
-                    <p className="text-xs text-gray-400 font-medium">{message.content}</p>
+                    <div className="flex items-center gap-1.5 text-xs text-gray-400 font-medium">
+                      {message.icon === 'tool' && <Framer className="w-3.5 h-3.5" />}
+                      {message.icon === 'success' && <CloudCheck className="w-3.5 h-3.5" />}
+                      {message.icon === 'error' && <PenOff className="w-3.5 h-3.5" />}
+                      <span>{message.content}</span>
+                    </div>
                   </div>
                 ) : (message.content === '--- Session ended ---' || message.content === '--- Intake session completed ---') ? (
                   <div className="flex justify-center my-4">
