@@ -792,6 +792,7 @@ STEP 2 (MANDATORY): SPEAK to the user. Say something like:
                                         turn_state["last_response_time"] = 0
                                         turn_state["response_text_sent"] = ""
                                         turn_state["turn_complete_speech"] = False
+                                        turn_state["post_speech_tc_sent"] = False
                                         turn_state["interrupted_at_msg"] = -1  # Old interrupt no longer relevant
                                         logger.info(f"[TEXT INPUT] Reset ALL blocking flags for: '{content[:30]}...'")
                                     
@@ -953,6 +954,7 @@ I've calculated the damages estimate:
                     "last_response_ended": 0,  # Timestamp when last response finished (for cooldown)
                     "response_cooldown": 0.5,  # Seconds to wait between responses
                     "turn_complete_speech": False,  # True once we've sent a complete speech for this turn
+                    "post_speech_tc_sent": False,  # True once we've forwarded the post-speech turn_complete
                     "speech_completed_at": 0,  # Timestamp of last speech completion (for blocking duplicates)
                     "sent_response_hashes": set(),  # Track hashes of sent responses to block exact duplicates
                     # Batch upload tracking
@@ -990,28 +992,40 @@ I've calculated the damages estimate:
                 def dedup_final_transcript(text: str) -> str:
                     """Remove accidental self-duplication from Gemini final transcripts.
                     
-                    Gemini Live sometimes returns a final output_transcription that
-                    contains the full response repeated (often with small corrections
-                    in the second copy). Detect this by finding the first ~40-char
-                    prefix re-appearing later in the text and keeping only the later
-                    (corrected) copy.
+                    Handles two patterns:
+                      Pattern 1: "Hello world. Hello world." — simple prefix duplication
+                      Pattern 2: "...wrist fracture. Is that correct? Thank you...wrist fracture. Is that correct?"
+                                 — partial text prepended to the full corrected version (suffix overlap)
                     """
                     text = (text or "").strip()
                     if len(text) < 80:
                         return text
-                    # Use first N chars as a fingerprint
+
+                    # Strategy 1: Simple prefix duplication — first ~40 chars reappear later
                     prefix_len = min(40, len(text) // 3)
                     prefix = text[:prefix_len]
-                    # Look for this prefix re-appearing later
                     second_start = text.find(prefix, prefix_len)
                     if second_start > 0:
                         first_part_len = second_start
                         second_part_len = len(text) - second_start
-                        # Second part should be at least 60% of first part (real duplication, not coincidence)
                         if second_part_len >= first_part_len * 0.6:
                             deduped = text[second_start:].strip()
-                            logger.info(f"[DEDUP] Removed self-duplication: {len(text)}ch → {len(deduped)}ch")
+                            logger.info(f"[DEDUP-1] Prefix duplication: {len(text)}ch → {len(deduped)}ch")
                             return deduped
+
+                    # Strategy 2: Suffix-overlap — the partial text at the start is a
+                    # SUFFIX of the full corrected text that follows.
+                    # Split at sentence boundaries (.!? followed by space) and check.
+                    import re
+                    for m in re.finditer(r'[.!?]\s+', text):
+                        boundary = m.end()
+                        if boundary < 30 or boundary > len(text) * 0.6:
+                            continue
+                        first_part = text[:boundary].strip()
+                        second_part = text[boundary:].strip()
+                        if len(second_part) > len(first_part) and second_part.endswith(first_part):
+                            logger.info(f"[DEDUP-2] Suffix overlap: {len(text)}ch → {len(second_part)}ch")
+                            return second_part
                     return text
                 
                 def merge_streamed_transcript(existing: str, incoming: str) -> str:
@@ -1282,6 +1296,7 @@ I've calculated the damages estimate:
                                     turn_state["response_text_sent"] = response_text
                                     turn_state["last_response_time"] = time.time()  # Track when we sent this
                                     turn_state["turn_complete_speech"] = False  # New turn, allow new speech
+                                    turn_state["post_speech_tc_sent"] = False  # Allow new turn_complete
                                     turn_state["sent_response_hashes"].add(turn_hash)  # Track this response
                                     logger.info(f"[New Response] Starting response for turn {current_msg}, finished={is_finished}, {len(response_text)}ch: '{response_text[:200]}'")
                                     
@@ -1386,6 +1401,7 @@ I've calculated the damages estimate:
                                         turn_state["response_text_sent"] = ""  # Clear previous response
                                         turn_state["interrupted_at_msg"] = -1  # Old interrupt no longer relevant
                                         turn_state["turn_complete_speech"] = False  # Allow new speech
+                                        turn_state["post_speech_tc_sent"] = False  # Allow new turn_complete
                                 
                                 await websocket.send_json({
                                     "type": "transcript",
@@ -1394,14 +1410,30 @@ I've calculated the damages estimate:
                                     "partial": not is_finished,
                                 })
                             
-                            # Turn complete notification - ONLY SEND ONCE per user message
-                            # ADK may fire turn_complete multiple times (after tool calls, after speech)
+                            # Turn complete notification
+                            # ADK fires turn_complete after tool calls AND after speech.
+                            # We send BOTH to the frontend so it can properly manage mic gating.
                             if event.turn_complete:
                                 current_msg = turn_state["user_msg_count"]
                                 
-                                # Only send if we haven't sent turn_complete for this message yet
-                                if turn_state["last_turn_sent"] < current_msg:
-                                    turn_state["last_turn_sent"] = current_msg
+                                is_first = turn_state["last_turn_sent"] < current_msg
+                                is_post_speech = (
+                                    not is_first
+                                    and turn_state.get("turn_complete_speech")
+                                    and not turn_state.get("post_speech_tc_sent")
+                                )
+                                
+                                if is_first or is_post_speech:
+                                    if is_first:
+                                        turn_state["last_turn_sent"] = current_msg
+                                    if is_post_speech:
+                                        turn_state["post_speech_tc_sent"] = True
+                                        # Agent finished speaking — clear doc processing window
+                                        turn_state["doc_processing_until"] = 0
+                                        turn_state["doc_first_response_time"] = 0
+                                        logger.info(f"[Turn Complete] Post-speech for msg #{current_msg}, cleared doc window")
+                                    else:
+                                        logger.info(f"[Turn Complete] First for msg #{current_msg}")
                                     
                                     # Mark when this response ended (for cooldown)
                                     turn_state["last_response_ended"] = time.time()
@@ -1416,9 +1448,9 @@ I've calculated the damages estimate:
                                     # Send live update only if state changed
                                     new_state = await send_live_update_if_changed()
                                     if new_state:
-                                        logger.info(f"[Turn Complete] msg #{current_msg}, evidence items: {len(new_state.get('evidenceItems', []))}")
+                                        logger.info(f"[Turn Complete] evidence items: {len(new_state.get('evidenceItems', []))}")
                                         prev_state = new_state
-                                # Skip duplicate turn_completes silently
+                                # Skip other duplicate turn_completes silently
                             
                             # Tool call events - notify frontend about tool calls
                             # Send state update only if state actually changed (deduplication)

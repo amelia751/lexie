@@ -291,8 +291,14 @@ export default function VoiceChat() {
   }, []);
 
   // Dedup Gemini self-duplication in final transcripts (safety net — backend also deduplicates)
+  // Handles two patterns:
+  //   Pattern 1: "Hello world. Hello world." → simple prefix duplication
+  //   Pattern 2: "...wrist fracture. Is that correct? Thank you...wrist fracture. Is that correct?"
+  //              → partial text prepended to the full corrected version (suffix overlap)
   const dedupTranscript = useCallback((text: string): string => {
     if (text.length < 80) return text;
+
+    // Strategy 1: Simple prefix duplication — first ~40 chars reappear later
     const prefixLen = Math.min(40, Math.floor(text.length / 3));
     const prefix = text.slice(0, prefixLen);
     const secondStart = text.indexOf(prefix, prefixLen);
@@ -302,6 +308,22 @@ export default function VoiceChat() {
         return text.slice(secondStart).trim();
       }
     }
+
+    // Strategy 2: Suffix-overlap — the partial text at the start is a SUFFIX of the full
+    // corrected text that follows. Split at sentence boundaries and check.
+    // Example: "...Is that correct? Thank you for uploading...Is that correct?"
+    const boundaryRegex = /[.!?]\s+/g;
+    let match;
+    while ((match = boundaryRegex.exec(text)) !== null) {
+      const boundary = match.index + match[0].length;
+      if (boundary < 30 || boundary > text.length * 0.6) continue;
+      const firstPart = text.slice(0, boundary).trim();
+      const secondPart = text.slice(boundary).trim();
+      if (secondPart.length > firstPart.length && secondPart.endsWith(firstPart)) {
+        return secondPart;
+      }
+    }
+
     return text;
   }, []);
 
@@ -847,22 +869,29 @@ export default function VoiceChat() {
         };
       });
 
-      // Stream audio to backend (paused when waiting for document or processing)
+      // Stream audio to backend — send SILENCE when mic is gated to keep
+      // Gemini's audio pipeline active (critical for proper turn management).
+      // Without continuous audio, Gemini can't transition from "speaking" to
+      // "listening" mode, requiring the user to speak twice.
       processor.onaudioprocess = (e) => {
         if (ws.readyState !== WebSocket.OPEN) return;
-        // PAUSE audio capture when:
-        // 1. Waiting for document input (card showing)
-        // 2. Processing a recently uploaded document (agent analyzing)
+        // When waiting for document input or processing a document,
+        // send SILENCE instead of mic audio. This prevents the agent's
+        // speaker audio from being picked up while keeping Gemini's
+        // turn management active.
         if (waitingForDocRef.current || processingDocRef.current) {
           const reason = waitingForDocRef.current
             ? 'waiting_for_document'
             : 'processing_document_or_assistant_response';
           const now = Date.now();
           if (lastAudioGateReasonRef.current !== reason || now - lastAudioGateLogAtRef.current > 3000) {
-            addDebugLog('AUDIO_GATE', `Mic blocked: ${reason}`);
+            addDebugLog('AUDIO_GATE', `Mic blocked: ${reason} (sending silence)`);
             lastAudioGateReasonRef.current = reason;
             lastAudioGateLogAtRef.current = now;
           }
+          // Send silence (all zeros) to keep Gemini's audio stream continuous
+          const silence = new Int16Array(e.inputBuffer.length);
+          ws.send(silence.buffer);
           return;
         }
         lastAudioGateReasonRef.current = '';
