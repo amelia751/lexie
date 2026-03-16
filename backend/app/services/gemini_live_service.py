@@ -546,6 +546,13 @@ class GeminiLiveService:
                                     # NEW: Document upload with actual file content for INSTANT extraction
                                     turn_state["user_msg_count"] += 1
                                     
+                                    # IMMEDIATELY set doc processing state to block parallel responses
+                                    import time
+                                    turn_state["doc_processing_until"] = time.time() + 10
+                                    turn_state["doc_speech_started"] = False
+                                    turn_state["doc_speech_finished"] = False
+                                    turn_state["doc_first_response_time"] = 0
+                                    
                                     doc_type = msg.get("doc_type", "document")
                                     file_name = msg.get("file_name", "document")
                                     file_id = msg.get("file_id", "")
@@ -696,6 +703,7 @@ class GeminiLiveService:
                                     turn_state["doc_processing_until"] = time.time() + 10  # 10s window for doc processing
                                     turn_state["doc_speech_started"] = False
                                     turn_state["doc_speech_finished"] = False
+                                    turn_state["doc_first_response_time"] = 0  # Reset for new doc
                                     
                                     # Tell agent about the extraction
                                     agent_message = f"""[DOCUMENT UPLOADED] {doc_type}: {file_name}
@@ -720,10 +728,18 @@ class GeminiLiveService:
                                     turn_state["user_msg_count"] += 1
                                     content = msg.get("content", "")
                                     
-                                    # Reset doc_speech flags for non-document text
+                                    # Reset ALL blocking flags for any text input
+                                    # This allows agent to respond to "I don't have this" etc.
                                     if not content.startswith("[DOCUMENT UPLOADED]"):
+                                        turn_state["doc_processing_until"] = 0  # End doc window
                                         turn_state["doc_speech_started"] = False
                                         turn_state["doc_speech_finished"] = False
+                                        turn_state["doc_first_response_time"] = 0
+                                        turn_state["speech_completed_at"] = 0
+                                        turn_state["last_response_time"] = 0
+                                        turn_state["response_text_sent"] = ""
+                                        turn_state["turn_complete_speech"] = False
+                                        logger.info(f"[TEXT INPUT] Reset ALL blocking flags for: '{content[:30]}...'")
                                     
                                     # LEGACY: Detect [DOCUMENT UPLOADED] text (fallback if base64 fails)
                                     if content.startswith("[DOCUMENT UPLOADED]"):
@@ -754,6 +770,7 @@ class GeminiLiveService:
                                         turn_state["doc_processing_until"] = time.time() + 10  # 10s window for doc processing
                                         turn_state["doc_speech_started"] = False
                                         turn_state["doc_speech_finished"] = False
+                                        turn_state["doc_first_response_time"] = 0  # Reset for new doc
                                         
                                         agent_message = f"""[DOCUMENT UPLOADED] {doc_type}
 
@@ -878,10 +895,12 @@ I've calculated the damages estimate:
                     "doc_processing_until": 0,  # Timestamp until which we enforce single response
                     "doc_speech_started": False,  # True when agent starts speaking during doc processing
                     "doc_speech_finished": False,  # True when agent finishes speaking (blocks 2nd voice)
+                    "doc_first_response_time": 0,  # Timestamp of first response during doc processing
                     "last_response_ended": 0,  # Timestamp when last response finished (for cooldown)
                     "response_cooldown": 0.5,  # Seconds to wait between responses
                     "turn_complete_speech": False,  # True once we've sent a complete speech for this turn
                     "speech_completed_at": 0,  # Timestamp of last speech completion (for blocking duplicates)
+                    "sent_response_hashes": set(),  # Track hashes of sent responses to block exact duplicates
                 }
                 
                 def get_state_hash(state: dict) -> str:
@@ -1026,28 +1045,58 @@ I've calculated the damages estimate:
                                 # Track doc speech state
                                 in_doc_window = time.time() < turn_state["doc_processing_until"]
                                 
-                                # CRITICAL: Block duplicate responses for the SAME turn
+                                # FIRST CHECK: During doc processing, allow only ONE response
+                                # This is the most aggressive check - blocks any second response during doc window
+                                if in_doc_window and turn_state["doc_speech_started"]:
+                                    existing = turn_state["response_text_sent"]
+                                    # Only allow if this is a continuation of existing response
+                                    if not response_text.startswith(existing) and not existing.startswith(response_text):
+                                        logger.info(f"[BLOCKED DOC] Second response during doc window: '{response_text[:40]}...'")
+                                        continue
+                                
+                                # SECOND CHECK: Block by content hash (catches parallel duplicates)
+                                content_hash = hash(response_text[:100])
+                                turn_hash = f"{current_msg}:{content_hash}"
+                                if turn_hash in turn_state["sent_response_hashes"]:
+                                    logger.info(f"[BLOCKED HASH] Duplicate response blocked: '{response_text[:40]}...'")
+                                    continue
+                                
+                                # THIRD CHECK: Block duplicate responses for the SAME turn
                                 # If we already have substantial text AND this doesn't continue it, block
                                 existing_text = turn_state["response_text_sent"]
-                                if existing_text and len(existing_text) > 30:
-                                    # Check if this is a continuation or a duplicate
-                                    if not response_text.startswith(existing_text):
-                                        # Not a continuation - check if it's similar content (duplicate)
-                                        # Block if we're in doc window OR response happened recently
+                                if existing_text and len(existing_text) > 20:
+                                    # Check if this is a continuation
+                                    is_continuation = (
+                                        response_text.startswith(existing_text) or
+                                        existing_text.startswith(response_text)  # Partial update
+                                    )
+                                    if not is_continuation:
+                                        # Block ANY non-continuation if we're responding to current turn
+                                        if resp_msg == current_msg:
+                                            logger.info(f"[BLOCKED DUPLICATE] Alternative response for turn {current_msg}: '{response_text[:40]}...'")
+                                            continue
+                                        # Also block if within 15 seconds
                                         time_since_response = time.time() - turn_state.get("last_response_time", 0)
-                                        if in_doc_window or time_since_response < 10.0:
-                                            logger.info(f"[BLOCKED DUPLICATE] Already sent response, blocking: '{response_text[:40]}...'")
+                                        if turn_state.get("last_response_time", 0) > 0 and time_since_response < 15.0:
+                                            logger.info(f"[BLOCKED DUPLICATE] Non-continuation response blocked ({time_since_response:.1f}s ago): '{response_text[:40]}...'")
                                             continue
                                 
                                 # Check if this is a NEW response for a NEW turn (after any interruption)
                                 if resp_msg < current_msg:
                                     # CRITICAL: During doc processing window, block ALL new responses
                                     # Only allow the FIRST response for a document
+                                    logger.info(f"[RESPONSE] New turn response. in_doc_window={in_doc_window}, doc_first_response_time={turn_state.get('doc_first_response_time', 0)}, resp_msg={resp_msg}, current_msg={current_msg}")
                                     if in_doc_window:
-                                        if turn_state["doc_speech_started"]:
-                                            # We've already started a response during doc processing - block new ones
-                                            logger.info(f"[BLOCKED] Additional response during doc window")
+                                        # Use timestamp to detect if we've already started responding
+                                        first_response_time = turn_state.get("doc_first_response_time", 0)
+                                        if first_response_time > 0:
+                                            # We've already started a response - block this one
+                                            logger.info(f"[BLOCKED] Additional response during doc window (started {time.time() - first_response_time:.1f}s ago): '{response_text[:40]}...'")
                                             continue
+                                        # IMMEDIATELY mark timestamp to prevent parallel responses
+                                        turn_state["doc_first_response_time"] = time.time()
+                                        turn_state["doc_speech_started"] = True
+                                        logger.info(f"[FIRST RESPONSE] Set doc_first_response_time={turn_state['doc_first_response_time']}")
                                     
                                     # ALSO block if we recently completed speech (time-based fallback)
                                     # Use 10s window to match doc processing window
@@ -1070,6 +1119,7 @@ I've calculated the damages estimate:
                                     turn_state["response_text_sent"] = response_text
                                     turn_state["last_response_time"] = time.time()  # Track when we sent this
                                     turn_state["turn_complete_speech"] = False  # New turn, allow new speech
+                                    turn_state["sent_response_hashes"].add(turn_hash)  # Track this response
                                     logger.info(f"[New Response] Starting response for turn {current_msg}")
                                     
                                     # Mark speech as started during doc processing

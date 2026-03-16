@@ -1464,16 +1464,10 @@ export default function VoiceChat() {
                     <div
                       className={`max-w-[80%] px-3 py-2 border rounded-lg ${
                         message.role === 'agent'
-                          ? `bg-white border-gray-300 ${message.isLive ? 'border-blue-400' : ''}`
+                          ? 'bg-white border-gray-300'
                           : 'bg-true-turquoise border-true-turquoise text-white'
                       }`}
                     >
-                      {message.isLive && (
-                        <div className="flex items-center gap-1 text-[10px] text-blue-500 mb-1">
-                          <span className="animate-pulse">●</span>
-                          <span>Speaking...</span>
-                        </div>
-                      )}
                       <p className={`text-xs leading-relaxed ${message.role === 'agent' ? 'text-gray-900' : 'text-white'}`}>
                         {message.content}
                       </p>
@@ -1582,12 +1576,6 @@ export default function VoiceChat() {
                 )}
               </div>
             ))}
-            {/* Debug: Current card state */}
-            {mode === 'live' && (
-              <div className="text-[10px] bg-blue-50 border border-blue-200 rounded px-2 py-1 mx-2">
-                Card state: {liveDocumentRequest ? `✅ ${liveDocumentRequest.id}` : '❌ null'}
-              </div>
-            )}
             {/* Live Mode Document Request Card */}
             {mode === 'live' && liveDocumentRequest && (
               <div className="flex justify-start">

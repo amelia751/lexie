@@ -6,7 +6,7 @@ This document lists all evidence files needed to test the Lexie legal intake sys
 
 ---
 
-## 🎤 Demo Script - Quick Answers for Agent Questions
+## Demo Script - Quick Answers for Agent Questions
 
 Use these responses when speaking with Lexie during a demo:
 
@@ -65,60 +65,56 @@ Use these responses when speaking with Lexie during a demo:
 
 ## Quick Overview
 
-| Category | File Count | Format | Status |
-|----------|------------|--------|--------|
-| Incident Reports | 3 | PDF | ✅ Done |
-| Medical Records | 5 | PDF | ✅ Done |
-| **Medical Billing** | **5** | **PDF** | **✅ NEW** |
-| Employment Records | 2 | PDF | ✅ Done |
-| Photos | 2 | PNG | ✅ Done |
-| Workers' Comp | 2 | PDF | ✅ Done |
+| Category | File Count | Format |
+|----------|------------|--------|
+| Incident Reports | 3 | PDF |
+| Medical Records | 5 | PDF |
+| Medical Billing | 5 | PDF |
+| Employment Records | 2 | PDF |
+| Photos | 2 | PNG |
+| Workers' Comp | 2 | PDF |
 
 **Note:** All dates updated to 2026 (incident date: February 8, 2026)
 
 ---
 
-## 1. Incident & Safety Reports (PDF) ✅ DONE
+## 1. Incident & Safety Reports (PDF)
 
 Location: `evidence/`
 
-| Filename | Status |
-|----------|--------|
-| `employer-incident-report.pdf` | ✅ |
-| `osha-investigation.pdf` | ✅ |
-| `witness-statements.pdf` | ✅ |
+- `employer-incident-report.pdf`
+- `osha-investigation.pdf`
+- `witness-statements.pdf`
 
 LaTeX source files (`.tex`) available for editing.
 
 ---
 
-## 2. Medical Records (PDF) ✅ DONE
+## 2. Medical Records (PDF)
 
 Location: `evidence/`
 
-| Filename | Status |
-|----------|--------|
-| `medical-records-er.pdf` | ✅ |
-| `medical-records-orthopedic.pdf` | ✅ |
-| `medical-records-neurology.pdf` | ✅ |
-| `medical-records-imaging.pdf` | ✅ |
-| `medical-records-pt.pdf` | ✅ |
+- `medical-records-er.pdf`
+- `medical-records-orthopedic.pdf`
+- `medical-records-neurology.pdf`
+- `medical-records-imaging.pdf`
+- `medical-records-pt.pdf`
 
 LaTeX source files (`.tex`) available for editing.
 
 ---
 
-## 3. Medical Billing Statements (PDF) ✅ NEW
+## 3. Medical Billing Statements (PDF)
 
 Location: `evidence/`
 
-| Filename | Provider | Total | Status |
-|----------|----------|-------|--------|
-| `billing-er.pdf` | Riverside General Hospital | $17,820.00 | ✅ |
-| `billing-orthopedic.pdf` | Riverside Specialty Orthopedics | $2,845.00 | ✅ |
-| `billing-neurology.pdf` | Riverside Neurology Specialists | $2,630.00 | ✅ |
-| `billing-imaging.pdf` | Riverside Diagnostic Imaging | $6,260.00 | ✅ |
-| `billing-pt.pdf` | Riverside Center for Physical Therapy | $4,155.00 | ✅ |
+| Filename | Provider | Total |
+|----------|----------|-------|
+| `billing-er.pdf` | Riverside General Hospital | $17,820.00 |
+| `billing-orthopedic.pdf` | Riverside Specialty Orthopedics | $2,845.00 |
+| `billing-neurology.pdf` | Riverside Neurology Specialists | $2,630.00 |
+| `billing-imaging.pdf` | Riverside Diagnostic Imaging | $6,260.00 |
+| `billing-pt.pdf` | Riverside Center for Physical Therapy | $4,155.00 |
 
 **Total Medical Expenses: $33,710.00**
 
@@ -135,38 +131,32 @@ To regenerate PDFs: `cd evidence/latex && pdflatex -output-directory=.. billing-
 
 ---
 
-## 4. Employment Records (PDF) ✅ DONE
+## 4. Employment Records (PDF)
 
 Location: `evidence/`
 
-| Filename | Status |
-|----------|--------|
-| `employment-records.pdf` | ✅ |
-| `safety-training-records.pdf` | ✅ |
+- `employment-records.pdf`
+- `safety-training-records.pdf`
 
 LaTeX source files (`.tex`) available for editing.
 
 ---
 
-## 4. Photo Evidence (PNG) ✅ DONE
+## 5. Photo Evidence (PNG)
 
 Location: `evidence/`
 
-| Filename | Status |
-|----------|--------|
-| `safety-violations.png` | ✅ |
-| `arm-fracture.png` | ✅ |
+- `safety-violations.png`
+- `arm-fracture.png`
 
 ---
 
-## 5. Workers' Compensation Documents (PDF) ✅ DONE
+## 6. Workers' Compensation Documents (PDF)
 
 Location: `evidence/`
 
-| Filename | Status |
-|----------|--------|
-| `workers-comp-claim.pdf` | ✅ |
-| `ime-report.pdf` | ✅ |
+- `workers-comp-claim.pdf`
+- `ime-report.pdf`
 
 LaTeX source files (`.tex`) available for editing.
 
@@ -312,69 +302,4 @@ Use these consistent facts when creating evidence files:
 | Carrier | Liberty Mutual Insurance |
 | Policy # | GL-TIT-2024-00147 |
 | Policy Limits | $1,000,000 per occurrence |
-
----
-
-## Folder Structure
-
-```
-evidence/
-├── safety-violations.png              ✅
-├── arm-fracture.png                   ✅
-├── employer-incident-report.pdf       ✅  (+ .tex source)
-├── osha-investigation.pdf             ✅  (+ .tex source)
-├── witness-statements.pdf             ✅  (+ .tex source)
-├── medical-records-er.pdf             ✅  (+ .tex source)
-├── medical-records-orthopedic.pdf     ✅  (+ .tex source)
-├── medical-records-neurology.pdf      ✅  (+ .tex source)
-├── medical-records-imaging.pdf        ✅  (+ .tex source)
-├── medical-records-pt.pdf             ✅  (+ .tex source)
-├── employment-records.pdf             ✅  (+ .tex source)
-├── safety-training-records.pdf        ✅  (+ .tex source)
-├── workers-comp-claim.pdf             ✅  (+ .tex source)
-└── ime-report.pdf                     ✅  (+ .tex source)
-```
-
-**To edit a PDF:** Edit the `.tex` file, then run `tectonic <filename>.tex` to regenerate.
-
----
-
-## Why Work Injury is Better for Demo
-
-1. **Multiple liable parties** → Employer, general contractor, equipment manufacturer
-2. **Regulatory angle** → OSHA violations add weight and credibility
-3. **Complex legal questions** → Workers' comp vs third-party negligence claim
-4. **Rich document ecosystem** → Incident reports, safety records, witness statements
-5. **Emotional resonance** → Employer negligence, worker vulnerability
-
----
-
-## Update Evidence Mapping
-
-After adding files, update `frontend/src/lib/evidence-mapping.ts`:
-
-```typescript
-export const evidenceMap: Record<string, EvidenceDocument> = {
-  // Photos ✅
-  'Safety Violations': {
-    url: '/evidence/safety-violations.png',
-    type: 'image',
-  },
-  'Injury Photos': {
-    url: '/evidence/arm-fracture.png',
-    type: 'image',
-  },
-  
-  // PDFs (add as you create them)
-  'Employer Incident Report': {
-    url: '/evidence/employer-incident-report.pdf',
-    type: 'pdf',
-  },
-  'OSHA Investigation': {
-    url: '/evidence/osha-investigation.pdf',
-    type: 'pdf',
-  },
-  // ... etc
-};
-```
 
