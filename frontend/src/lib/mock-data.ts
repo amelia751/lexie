@@ -3,7 +3,7 @@
 export interface Evidence {
   id: string;
   name: string;
-  type: 'medical' | 'photo' | 'insurance' | 'police' | 'deposition';
+  type: 'medical' | 'photo' | 'insurance' | 'police' | 'deposition' | 'other';
   uploadedAt: string;
   size: string;
   status: 'processed' | 'processing' | 'pending';

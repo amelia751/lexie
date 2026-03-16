@@ -254,7 +254,7 @@ def validate_uploaded_document(
 def process_validated_upload(
     validation_result: str,
     keep_document: bool = False,
-    new_evidence_type: str = None
+    new_evidence_type: str = ""
 ) -> dict:
     """
     Process the result of document validation.
@@ -609,7 +609,7 @@ def get_case_facts() -> dict:
     }
 
 
-def initialize_case(case_type: str, session_id: str = None) -> dict:
+def initialize_case(case_type: str, session_id: str = "") -> dict:
     """
     Initialize a new case with the appropriate evidence checklist.
     Automatically shows the first document upload card so user can upload while talking.

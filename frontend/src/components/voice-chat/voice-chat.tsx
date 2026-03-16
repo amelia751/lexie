@@ -828,6 +828,11 @@ export default function VoiceChat() {
               if (!waitingForDocRef.current) {
                 processingDocRef.current = false;
                 addDebugLog('DOC_PROCESSING_DONE', 'Mic resumed after assistant finished turn');
+                // Notify backend that mic is live again so it can re-engage
+                // Gemini's VAD (which may have gone dormant during silence)
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: 'mic_resumed' }));
+                }
               } else {
                 addDebugLog('DOC_PROCESSING_HOLD', 'Mic remains paused because a document card is active');
               }
@@ -1101,8 +1106,15 @@ export default function VoiceChat() {
             lastAudioGateReasonRef.current = reason;
             lastAudioGateLogAtRef.current = now;
           }
-          // Send silence (all zeros) to keep Gemini's audio stream continuous
+          // Send dithered noise (NOT pure zeros) to keep Gemini's audio
+          // stream continuous. Pure silence causes Gemini's VAD to adapt its
+          // noise floor to zero, making it unable to detect real speech when
+          // the mic resumes after long document processing. Low-level noise
+          // (~-66 dB) keeps the VAD calibrated without triggering speech detection.
           const silence = new Int16Array(e.inputBuffer.length);
+          for (let i = 0; i < silence.length; i++) {
+            silence[i] = Math.round((Math.random() - 0.5) * 30);
+          }
           ws.send(silence.buffer);
           return;
         }
