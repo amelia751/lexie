@@ -808,6 +808,9 @@ You don't analyze documents yourself - just review and confirm the extracted fac
 ### Damages (calls Damages Agent internally):
 - `calculate_damages()` - Get settlement estimate (uses code execution)
 
+### Session Control:
+- `end_session()` - End the intake session (call ONLY after Q&A wrap-up is done)
+
 ## INTAKE FLOW:
 
 ### Phase 1: Understand the Situation & IMMEDIATELY Initialize
@@ -946,13 +949,22 @@ When user asks for settlement estimate OR when `check_intake_complete()` returns
 
 The Damages Agent handles all the math - you just present the results conversationally.
 
-### Phase 6: Final Summary & Session End
-When user says "that's all", "wrap up", "calculate my settlement", or similar:
-1. Call `check_intake_complete()` to verify - if returns WRAP_UP, proceed
-2. Call `calculate_damages()` to get settlement estimate
-3. Call `get_case_summary()` to generate final summary
-4. Present summary to user with settlement range
-5. Thank them and say "Your intake is now complete. An attorney will review your case."
+### Phase 6: Settlement Estimate & Q&A Wrap-Up
+When `check_intake_complete()` returns `WRAP_UP` or user says "that's all":
+1. Call `calculate_damages()` to get settlement estimate
+2. Present the settlement range conversationally
+3. **THEN ASK**: "Do you have any questions about your case or the next steps?"
+4. Answer any questions the user has — be helpful and thorough
+5. After answering, ask again: "Is there anything else you'd like to know?"
+6. When user confirms NO more questions (e.g., "no", "that's all", "I'm good"):
+   - Say a warm goodbye: "Thank you for sharing your case with me. An attorney will review everything we've gathered and be in touch. Take care."
+   - Call `end_session()` to close the session
+
+**⚠️ CRITICAL SESSION END RULES:**
+- You MUST call `end_session()` after your final goodbye — do NOT leave the session hanging
+- Do NOT call `end_session()` while the user still has questions
+- Do NOT call `end_session()` before presenting the settlement estimate
+- The sequence is ALWAYS: settlement → "any questions?" → answer → "anything else?" → goodbye → `end_session()`
 
 ## STOP CONDITIONS:
 ✅ Stop collecting evidence when `check_intake_complete()` returns `action: "WRAP_UP"`
@@ -960,6 +972,7 @@ When user says "that's all", "wrap up", "calculate my settlement", or similar:
 ✅ Do NOT keep asking after WRAP_UP - proceed to damages and summary
 ✅ When user asks for settlement estimate, call `calculate_damages()` immediately
 ✅ When user says "wrap up" or "that's all I have", call `check_intake_complete()` then `calculate_damages()`
+✅ After settlement + Q&A, call `end_session()` to close
 
 ## ⚠️ AVOID TOOL SPAM - HARD LIMITS:
 - `update_case_facts()`: MAX **1-2 calls** per document. STOP after 2 calls and SPEAK.
@@ -1159,6 +1172,34 @@ print(f"Range: ${{settlement_low:,.0f}} - ${{settlement_high:,.0f}}")
     }
 
 
+def end_session() -> dict:
+    """
+    End the intake session after the user confirms they have no more questions.
+    
+    Call this ONLY when:
+    1. You have presented the settlement estimate
+    2. You have asked the user if they have any questions
+    3. The user confirmed they have NO more questions
+    4. You have said your final goodbye
+    
+    DO NOT call this while the user still has questions.
+    DO NOT call this before presenting the settlement estimate.
+    
+    Returns:
+        Dict confirming session end
+    """
+    from app.services.firestore_service import firestore_service
+    firestore_service.save_evidence_hub()
+    
+    evidence_hub.add_transcript("system", "--- Intake session completed ---")
+    firestore_service.save_evidence_hub()
+    
+    return {
+        "status": "session_ended",
+        "message": "Intake session has been completed and saved.",
+    }
+
+
 # Hub tools list - SIMPLIFIED to avoid tool loops
 HUB_TOOLS = [
     initialize_case,
@@ -1174,6 +1215,7 @@ HUB_TOOLS = [
     check_intake_complete,
     get_case_summary,
     calculate_damages,  # Calculate settlement estimate
+    end_session,  # Agent-initiated session end
 ]
 
 

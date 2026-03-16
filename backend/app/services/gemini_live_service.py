@@ -1647,6 +1647,15 @@ I've calculated the damages estimate:
                                         })
                                         # Persist tool calls to transcript
                                         evidence_hub.add_transcript("system", f"Calling {tool_name}...")
+                                        
+                                        # If agent called end_session, signal the frontend
+                                        if tool_name == "end_session":
+                                            await websocket.send_json({
+                                                "type": "session_end",
+                                                "reason": "intake_complete",
+                                                "message": "Intake session completed by agent",
+                                            })
+                                            logger.info("[SESSION_END] Agent called end_session — notifying frontend")
                                     
                                     # Send updated state only if it changed
                                     new_state = await send_live_update_if_changed()

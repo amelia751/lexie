@@ -191,6 +191,7 @@ export default function VoiceChat() {
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const resumeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isStoppedRef = useRef(false);
+  const sessionCompletedRef = useRef(false);
   
   const { 
     startSession: startContextSession, 
@@ -893,6 +894,25 @@ export default function VoiceChat() {
           if (msg.data) {
             dispatchBackendLiveUpdate(msg.data as LiveDataSnapshot);
           }
+        } else if (type === 'session_end') {
+          // Agent-initiated session end
+          addDebugLog('SESSION_END', msg.reason || 'intake_complete');
+          addSystemMessage('--- Intake session completed ---', 'success');
+          sessionCompletedRef.current = true;
+          
+          // Give a short delay so the agent's final audio finishes playing
+          setTimeout(() => {
+            // Graceful disconnect
+            processorRef.current?.disconnect();
+            audioContextRef.current?.close();
+            mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+            wsRef.current?.close();
+            stopAudio();
+            interruptedRef.current = false;
+            setIsConnected(false);
+            setIsRecording(false);
+            setStatus('Completed');
+          }, 3000); // 3s delay for final audio to finish
         } else if (type === 'error') {
           setError(msg.content);
           addSystemMessage(msg.content, 'error');
@@ -1034,7 +1054,11 @@ export default function VoiceChat() {
         setIsConnected(false);
         setIsRecording(false);
         
-        if (isStoppedRef.current) {
+        // Don't overwrite 'Completed' status from agent-initiated end
+        if (sessionCompletedRef.current) {
+          // Agent ended the session — keep 'Completed' status (already set)
+          sessionCompletedRef.current = false;
+        } else if (isStoppedRef.current) {
           // User clicked stop — show paused state
           setStatus('Paused');
           addSystemMessage('--- Session paused — click mic to continue ---', 'success');
@@ -1771,6 +1795,8 @@ export default function VoiceChat() {
             {mode === 'live' ? (
               isConnected ? (
                 <Wifi className="w-4 h-4 text-emerald-600" />
+              ) : status === 'Completed' ? (
+                <CloudCheck className="w-4 h-4 text-emerald-600" />
               ) : status === 'Paused' ? (
                 <Pause className="w-4 h-4 text-amber-500" />
               ) : (
@@ -1779,10 +1805,11 @@ export default function VoiceChat() {
             ) : null}
             <span className={`text-xs font-medium ${
               isConnected ? 'text-gray-600' 
+              : status === 'Completed' ? 'text-emerald-600'
               : status === 'Paused' ? 'text-amber-600' 
               : 'text-gray-600'
             }`}>
-              {mode === 'mock' ? 'Demo Mode' : isConnected ? status : status === 'Paused' ? 'Session Paused' : 'Disconnected'}
+              {mode === 'mock' ? 'Demo Mode' : isConnected ? status : status === 'Completed' ? 'Intake Complete' : status === 'Paused' ? 'Session Paused' : 'Disconnected'}
             </span>
             {mode === 'live' && isRecording && (
               <div className="flex items-center gap-1 text-red-500">
@@ -1846,12 +1873,15 @@ export default function VoiceChat() {
                 ) ? (
                   <div className="flex justify-center my-4">
                     <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
-                      message.content.includes('paused') || message.content.includes('Resuming')
-                        ? 'bg-amber-50 text-amber-600 border border-amber-200'
-                        : message.content.includes('Connection lost')
-                          ? 'bg-red-50 text-red-500 border border-red-200'
-                          : 'text-gray-400'
+                      message.content.includes('completed')
+                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                        : message.content.includes('paused') || message.content.includes('Resuming')
+                          ? 'bg-amber-50 text-amber-600 border border-amber-200'
+                          : message.content.includes('Connection lost')
+                            ? 'bg-red-50 text-red-500 border border-red-200'
+                            : 'text-gray-400'
                     }`}>
+                      {message.content.includes('completed') && <CloudCheck className="w-3 h-3" />}
                       {message.content.includes('paused') && <Pause className="w-3 h-3" />}
                       {message.content.includes('Connection lost') && <WifiOff className="w-3 h-3" />}
                       {message.content.includes('Resuming') && <Wifi className="w-3 h-3" />}
@@ -2219,9 +2249,11 @@ export default function VoiceChat() {
               ? 'Waiting for document' 
               : isSessionActive 
                 ? 'Click to pause session' 
-                : messages.length > 0 
-                  ? 'Click to resume' 
-                  : 'Click to begin'}
+                : status === 'Completed'
+                  ? 'Intake complete'
+                  : messages.length > 0 
+                    ? 'Click to resume' 
+                    : 'Click to begin'}
           </p>
         </div>
       </div>
