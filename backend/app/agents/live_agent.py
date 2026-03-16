@@ -551,7 +551,7 @@ def _get_follow_up_questions(evidence_type: str, status: str, will_provide_later
         }
 
 
-def update_case_facts(field: str, value) -> dict:
+def update_case_facts(field: str, value: str) -> dict:
     """
     Update a case fact in the evidence hub.
     
@@ -560,18 +560,33 @@ def update_case_facts(field: str, value) -> dict:
             - plaintiff_name, plaintiff_age, plaintiff_occupation
             - employer_name, employer_type
             - incident_date, incident_location, incident_description, incident_type
-            - injuries (list), injury_severity
-            - medical_providers (list), medical_expenses, future_medical_estimate
-            - days_missed_work, lost_wages, can_return_to_work, work_restrictions (list)
-            - witnesses (list)
-            - safety_violations (list), osha_citations (list)
+            - injuries (list as JSON string e.g. '["neck pain", "back pain"]'), injury_severity
+            - medical_providers (list as JSON), medical_expenses, future_medical_estimate
+            - days_missed_work, lost_wages, can_return_to_work, work_restrictions (list as JSON)
+            - witnesses (list as JSON)
+            - safety_violations (list as JSON), osha_citations (list as JSON)
             - workers_comp_filed, workers_comp_claim_number, health_insurance
-        value: The value to set
+        value: The value to set (use JSON string for lists/numbers, e.g. '["item1"]' or '1500.00')
     
     Returns:
         Dict confirming the update
     """
-    success = evidence_hub.update_fact(field, value)
+    import json
+    # Parse value: try JSON first (for lists, numbers, booleans), fallback to string
+    parsed_value = value
+    try:
+        parsed_value = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        # Try numeric conversion
+        try:
+            if '.' in str(value):
+                parsed_value = float(value)
+            else:
+                parsed_value = int(value)
+        except (ValueError, TypeError):
+            parsed_value = value
+    
+    success = evidence_hub.update_fact(field, parsed_value)
     
     # Persist to Firestore
     if success:
@@ -580,7 +595,7 @@ def update_case_facts(field: str, value) -> dict:
     return {
         "status": "success" if success else "error",
         "field": field,
-        "value": value,
+        "value": str(parsed_value),
         "message": f"Updated {field} in case file." if success else f"Failed to update {field}",
         "next_action": "⚠️ NOW SPEAK to confirm this with the user! Say: 'I've noted that [field]. Is that correct?'"
     }

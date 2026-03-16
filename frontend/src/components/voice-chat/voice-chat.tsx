@@ -649,13 +649,15 @@ export default function VoiceChat() {
     }
     // If currentDocumentRequest is undefined, keep existing state
     
-    // Update evidence items
+    // Collect which tabs have new data — we'll cycle through them with
+    // staggered delays so the user sees each section update in sequence.
+    const tabsToVisit: Array<'summary' | 'evidence' | 'timeline' | 'medical' | 'damages'> = [];
+    
+    // Update evidence items (never auto-switch individually — queued below)
     if (data.evidenceItems) {
-      // Debug log evidence items
       addDebugLog('EVIDENCE_ITEMS', data.evidenceItems.map(i => `${i.type}: ${i.status}`).slice(0, 5));
       
       data.evidenceItems.forEach(item => {
-        // Map backend status to frontend status (backend sends lowercase)
         let frontendStatus: 'required' | 'pending' | 'uploaded' | 'not_available' = 'required';
         switch (item.status) {
           case 'required': frontendStatus = 'required'; break;
@@ -664,7 +666,6 @@ export default function VoiceChat() {
           case 'not_available': frontendStatus = 'not_available'; break;
         }
         
-        // Check if item exists
         const existing = evidenceItems.find(e => e.id === item.id);
         if (existing) {
           updateEvidenceStatus(item.id, frontendStatus);
@@ -678,35 +679,34 @@ export default function VoiceChat() {
           });
         }
       });
+      // Always queue evidence tab when there are items
+      if (data.evidenceItems.length > 0) tabsToVisit.push('evidence');
     }
     
-    // Update timeline - auto-switch on first significant timeline event
+    // Update timeline (never auto-switch individually — queued below)
     if (data.timelineEvents && data.timelineEvents.length > 0) {
-      const isFirstTimeline = data.timelineEvents.length >= 2; // Switch when we have multiple events
-      data.timelineEvents.forEach((event, idx) => {
-        // Map backend category to frontend type
+      data.timelineEvents.forEach(event => {
         const categoryMap: Record<string, 'incident' | 'medical' | 'legal' | 'insurance'> = {
           'incident': 'incident',
           'medical': 'medical',
           'legal': 'legal',
-          'evidence': 'legal', // Map evidence to legal for now
+          'evidence': 'legal',
           'insurance': 'insurance',
         };
-        // Auto-switch on last event if this is significant
         addTimelineEvent({
           id: event.id,
           date: event.date,
           event: event.event,
           description: event.description || '',
           category: categoryMap[event.category] || 'incident',
-        }, isFirstTimeline && idx === data.timelineEvents!.length - 1);
+        }, false); // Never auto-switch here — handled by staggered cycle
       });
+      tabsToVisit.push('timeline');
     }
     
-    // Update medical records - auto-switch when we have significant medical data
+    // Update medical records (never auto-switch individually — queued below)
     if (data.medicalRecords && data.medicalRecords.length > 0) {
-      const isSignificantMedical = data.medicalRecords.length >= 2; // Switch when we have multiple records
-      data.medicalRecords.forEach((record, idx) => {
+      data.medicalRecords.forEach(record => {
         addMedicalRecord({
           id: record.id,
           date: record.date,
@@ -715,13 +715,13 @@ export default function VoiceChat() {
           diagnosis: record.diagnosis,
           icd10: record.icd10,
           amount: record.amount || 0,
-        }, isSignificantMedical && idx === data.medicalRecords!.length - 1);
+        }, false); // Never auto-switch here — handled by staggered cycle
       });
+      tabsToVisit.push('medical');
     }
     
-    // Update damages - auto-switch to damages tab when calculated (significant event)
+    // Update damages (never auto-switch individually — queued below)
     if (data.damagesEstimate && Object.keys(data.damagesEstimate).length > 0) {
-      const hasSignificantDamages = !!(data.damagesEstimate.settlementLow || data.damagesEstimate.totalEstimate);
       updateDamages({
         pastMedical: data.damagesEstimate.pastMedical,
         futureMedical: data.damagesEstimate.futureMedical,
@@ -731,9 +731,28 @@ export default function VoiceChat() {
         totalEstimate: data.damagesEstimate.totalEstimate,
         settlementLow: data.damagesEstimate.settlementLow,
         settlementHigh: data.damagesEstimate.settlementHigh,
-      }, hasSignificantDamages); // Only auto-switch if we have actual settlement values
+      }, false); // Never auto-switch here — handled by staggered cycle
+      if (data.damagesEstimate.settlementLow || data.damagesEstimate.totalEstimate) {
+        tabsToVisit.push('damages');
+      }
     }
-  }, [mode, updateCaseFact, addEvidenceItem, updateEvidenceStatus, addTimelineEvent, addMedicalRecord, updateDamages, evidenceItems]);
+    
+    // Staggered tab cycling — visit each updated tab for ~1.2s so the user
+    // sees a cascading "things are updating" effect across all panels.
+    if (tabsToVisit.length > 0) {
+      const TAB_DWELL_MS = 1200; // time to spend on each tab
+      tabsToVisit.forEach((tab, idx) => {
+        setTimeout(() => {
+          openTab(tab);
+          setActiveTab(tab);
+        }, idx * TAB_DWELL_MS);
+      });
+      // Always land on summary at the end so user sees the overview
+      setTimeout(() => {
+        setActiveTab('summary');
+      }, tabsToVisit.length * TAB_DWELL_MS);
+    }
+  }, [mode, updateCaseFact, addEvidenceItem, updateEvidenceStatus, addTimelineEvent, addMedicalRecord, updateDamages, evidenceItems, openTab, setActiveTab]);
 
   // Handle WebSocket messages
   const handleWsMessage = useCallback(
@@ -828,11 +847,6 @@ export default function VoiceChat() {
               if (!waitingForDocRef.current) {
                 processingDocRef.current = false;
                 addDebugLog('DOC_PROCESSING_DONE', 'Mic resumed after assistant finished turn');
-                // Notify backend that mic is live again so it can re-engage
-                // Gemini's VAD (which may have gone dormant during silence)
-                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                  wsRef.current.send(JSON.stringify({ type: 'mic_resumed' }));
-                }
               } else {
                 addDebugLog('DOC_PROCESSING_HOLD', 'Mic remains paused because a document card is active');
               }
@@ -1106,15 +1120,11 @@ export default function VoiceChat() {
             lastAudioGateReasonRef.current = reason;
             lastAudioGateLogAtRef.current = now;
           }
-          // Send dithered noise (NOT pure zeros) to keep Gemini's audio
-          // stream continuous. Pure silence causes Gemini's VAD to adapt its
-          // noise floor to zero, making it unable to detect real speech when
-          // the mic resumes after long document processing. Low-level noise
-          // (~-66 dB) keeps the VAD calibrated without triggering speech detection.
+          // Send pure silence (zeros) to keep Gemini's audio stream
+          // continuous without triggering its VAD. Dither noise (~±15) was
+          // tried but even at -66 dBFS it triggers Gemini's speech detection,
+          // causing the "2 voices" / doubled response issue.
           const silence = new Int16Array(e.inputBuffer.length);
-          for (let i = 0; i < silence.length; i++) {
-            silence[i] = Math.round((Math.random() - 0.5) * 30);
-          }
           ws.send(silence.buffer);
           return;
         }

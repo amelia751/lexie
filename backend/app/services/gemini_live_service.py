@@ -996,34 +996,6 @@ I've calculated the damages estimate:
                                         )
                                     )
                                     
-                                elif msg_type == "mic_resumed":
-                                    # Frontend signals mic is live after document processing.
-                                    # Gemini's VAD may have gone dormant from extended silence.
-                                    # Send a brief burst of low-level noise to re-calibrate VAD,
-                                    # then reset blocking flags so the next speech is accepted.
-                                    import struct, math
-                                    # 200ms of ~-60dB pink-ish noise at 16kHz (3200 samples)
-                                    vad_wake = bytearray()
-                                    for i in range(3200):
-                                        sample = int(50 * math.sin(2 * math.pi * 200 * i / 16000)
-                                                     + (hash(i) % 40 - 20))  # low tone + noise
-                                        sample = max(-32768, min(32767, sample))
-                                        vad_wake += struct.pack('<h', sample)
-                                    live_request_queue.send_realtime(
-                                        types.Blob(
-                                            mime_type="audio/pcm;rate=16000",
-                                            data=bytes(vad_wake),
-                                        )
-                                    )
-                                    # Reset stale blocking flags so next user speech isn't filtered
-                                    turn_state["doc_processing_until"] = 0
-                                    turn_state["doc_speech_started"] = False
-                                    turn_state["doc_speech_finished"] = False
-                                    turn_state["speech_completed_at"] = 0
-                                    turn_state["turn_complete_speech"] = False
-                                    turn_state["post_speech_tc_sent"] = False
-                                    logger.info("[VAD_WAKE] Mic resumed — sent audio burst & reset flags")
-                                
                                 elif msg_type == "end_turn":
                                     # User finished speaking
                                     live_request_queue.send_realtime(

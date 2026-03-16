@@ -1,0 +1,93 @@
+# ==============================================================================
+# cloudbuild.yaml — CI/CD pipeline for Lexie on Google Cloud Build
+#
+# Triggered automatically on git push when connected to Cloud Build Triggers.
+# Builds and deploys both backend and frontend to Cloud Run.
+#
+# To connect:
+#   gcloud builds triggers create github \
+#     --repo-name=lexie --repo-owner=<GITHUB_USER> \
+#     --branch-pattern="^main$" \
+#     --build-config=deploy/cloudbuild.yaml \
+#     --project=lexie-489222
+# ==============================================================================
+
+substitutions:
+  _REGION: us-central1
+  _BACKEND_SERVICE: lexie-backend
+  _FRONTEND_SERVICE: lexie-frontend
+  _SERVICE_ACCOUNT: development@${PROJECT_ID}.iam.gserviceaccount.com
+
+steps:
+  # ── Step 1: Deploy Backend ──────────────────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - "run"
+      - "deploy"
+      - "${_BACKEND_SERVICE}"
+      - "--source=./backend"
+      - "--region=${_REGION}"
+      - "--service-account=${_SERVICE_ACCOUNT}"
+      - "--set-env-vars=GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION}"
+      - "--allow-unauthenticated"
+      - "--memory=1Gi"
+      - "--timeout=3600"
+      - "--max-instances=3"
+      - "--session-affinity"
+      - "--quiet"
+    id: "deploy-backend"
+
+  # ── Step 2: Get Backend URL ─────────────────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: bash
+    args:
+      - "-c"
+      - |
+        gcloud run services describe ${_BACKEND_SERVICE} \
+          --region=${_REGION} \
+          --format="value(status.url)" > /workspace/backend_url.txt
+        echo "Backend URL: $(cat /workspace/backend_url.txt)"
+    id: "get-backend-url"
+    waitFor: ["deploy-backend"]
+
+  # ── Step 3: Deploy Frontend ─────────────────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: bash
+    args:
+      - "-c"
+      - |
+        BACKEND_URL=$(cat /workspace/backend_url.txt)
+        gcloud run deploy ${_FRONTEND_SERVICE} \
+          --source=./frontend \
+          --region=${_REGION} \
+          --set-build-env-vars="NEXT_PUBLIC_BACKEND_URL=$${BACKEND_URL}" \
+          --set-env-vars="NEXT_PUBLIC_BACKEND_URL=$${BACKEND_URL}" \
+          --allow-unauthenticated \
+          --memory=512Mi \
+          --max-instances=3 \
+          --quiet
+    id: "deploy-frontend"
+    waitFor: ["get-backend-url"]
+
+  # ── Step 4: Smoke Test ──────────────────────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: bash
+    args:
+      - "-c"
+      - |
+        BACKEND_URL=$(cat /workspace/backend_url.txt)
+        echo "Running smoke tests..."
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$${BACKEND_URL}/health")
+        if [ "$$STATUS" = "200" ]; then
+          echo "✅ Backend health check passed"
+        else
+          echo "❌ Backend health check failed (HTTP $$STATUS)"
+          exit 1
+        fi
+    id: "smoke-test"
+    waitFor: ["deploy-frontend"]
+
+timeout: "1800s"
+options:
+  logging: CLOUD_LOGGING_ONLY
