@@ -546,18 +546,33 @@ class GeminiLiveService:
                                     # NEW: Document upload with actual file content for INSTANT extraction
                                     turn_state["user_msg_count"] += 1
                                     
-                                    # IMMEDIATELY set doc processing state to block parallel responses
-                                    import time
-                                    turn_state["doc_processing_until"] = time.time() + 10
-                                    turn_state["doc_speech_started"] = False
-                                    turn_state["doc_speech_finished"] = False
-                                    turn_state["doc_first_response_time"] = 0
-                                    
                                     doc_type = msg.get("doc_type", "document")
                                     file_name = msg.get("file_name", "document")
                                     file_id = msg.get("file_id", "")
                                     file_ids = msg.get("file_ids", [file_id])
                                     content_b64 = msg.get("content_base64", "")
+                                    is_batch = msg.get("is_batch", False)
+                                    batch_index = msg.get("batch_index", 0)
+                                    batch_total = msg.get("batch_total", 1)
+                                    
+                                    # Track batch uploads
+                                    import time
+                                    if is_batch and batch_index == 0:
+                                        # First file in batch - reset batch tracking
+                                        turn_state["batch_files_pending"] = []
+                                        turn_state["batch_files_done"] = []
+                                        turn_state["batch_upload_started"] = time.time()
+                                    
+                                    if is_batch:
+                                        turn_state["batch_files_pending"].append(file_name)
+                                        logger.info(f"[BATCH] File {batch_index + 1}/{batch_total}: {file_name}")
+                                    
+                                    # Set doc processing state - extend window for batches
+                                    processing_window = 10 if not is_batch else 20  # Longer for batches
+                                    turn_state["doc_processing_until"] = time.time() + processing_window
+                                    turn_state["doc_speech_started"] = False
+                                    turn_state["doc_speech_finished"] = False
+                                    turn_state["doc_first_response_time"] = 0
                                     
                                     logger.info(f"[DOC_UPLOAD] Received {file_name} ({len(content_b64) // 1024}KB base64)")
                                     
@@ -698,23 +713,62 @@ class GeminiLiveService:
                                         result = handle_evidence_response(has_document=True, document_uploaded=True)
                                         logger.info(f"[DOC_UPLOAD] No specific match, used handle_evidence_response")
                                     
-                                    # Set document processing window
+                                    # Track batch completion
                                     import time
-                                    turn_state["doc_processing_until"] = time.time() + 10  # 10s window for doc processing
+                                    is_batch = len(turn_state["batch_files_pending"]) > 1
+                                    if file_name in turn_state["batch_files_pending"]:
+                                        turn_state["batch_files_pending"].remove(file_name)
+                                        turn_state["batch_files_done"].append(file_name)
+                                    
+                                    # Set document processing window
+                                    turn_state["doc_processing_until"] = time.time() + (20 if is_batch else 10)
                                     turn_state["doc_speech_started"] = False
                                     turn_state["doc_speech_finished"] = False
                                     turn_state["doc_first_response_time"] = 0  # Reset for new doc
                                     
-                                    # Tell agent about the extraction
-                                    agent_message = f"""[DOCUMENT UPLOADED] {doc_type}: {file_name}
+                                    # For batch uploads, only send message when ALL files are done
+                                    if is_batch and len(turn_state["batch_files_pending"]) > 0:
+                                        # More files pending - don't tell agent yet
+                                        pending_names = ", ".join(turn_state["batch_files_pending"])
+                                        logger.info(f"[BATCH] File {file_name} done, waiting for {len(turn_state['batch_files_pending'])} more: {pending_names}")
+                                        # Just acknowledge to agent but don't ask for confirmation yet
+                                        agent_message = f"""[BATCH PROCESSING] Received {file_name}
 {extraction_summary}
 
-⚠️ RESPOND EXACTLY ONCE:
-1. handle_evidence_response() already called - DO NOT call again
-2. Review the extracted facts above
-3. Call update_case_facts() for 1-2 key facts if needed
-4. SPEAK to confirm: "I see [key fact]. Is that correct?"
-5. Wait for user response before requesting next document"""
+⚠️ MORE FILES INCOMING - DO NOT RESPOND YET:
+- Files still processing: {pending_names}
+- Silently call update_case_facts() to save the facts
+- DO NOT SPEAK until all files are received
+- Wait for [BATCH COMPLETE] message"""
+                                    else:
+                                        # Single file or last file in batch - tell agent to respond
+                                        if len(turn_state["batch_files_done"]) > 1:
+                                            # Batch complete
+                                            all_files = ", ".join(turn_state["batch_files_done"])
+                                            agent_message = f"""[BATCH COMPLETE] All {len(turn_state['batch_files_done'])} files processed: {all_files}
+{extraction_summary}
+
+⚠️ NOW RESPOND ONCE:
+1. ALL files have been processed - facts already updated
+2. Summarize: "I've processed [N] documents. The total [key_info]. Is that correct?"
+3. SPEAK ONCE to confirm the combined information
+4. Wait for user response before proceeding"""
+                                            turn_state["batch_files_done"] = []  # Reset
+                                        else:
+                                            # Single file
+                                            agent_message = f"""[DOCUMENT RECEIVED] User uploaded: {file_name}
+
+{extraction_summary}
+
+**YOU MUST DO BOTH OF THESE NOW:**
+
+STEP 1: Call update_case_facts() with key extracted facts.
+
+STEP 2 (MANDATORY): SPEAK to the user. Say something like:
+   "Thank you for uploading the {doc_type}. I can see [mention one key fact]. Is that correct?"
+
+⚠️ WARNING: The turn is NOT complete until you SPEAK to the user!
+⚠️ You MUST verbally acknowledge the document."""
                                     
                                     live_request_queue.send_content(
                                         types.Content(
@@ -901,6 +955,10 @@ I've calculated the damages estimate:
                     "turn_complete_speech": False,  # True once we've sent a complete speech for this turn
                     "speech_completed_at": 0,  # Timestamp of last speech completion (for blocking duplicates)
                     "sent_response_hashes": set(),  # Track hashes of sent responses to block exact duplicates
+                    # Batch upload tracking
+                    "batch_files_pending": [],  # List of file names being processed in batch
+                    "batch_files_done": [],  # List of file names already processed
+                    "batch_upload_started": 0,  # Timestamp when batch upload started
                 }
                 
                 def get_state_hash(state: dict) -> str:
@@ -1019,9 +1077,15 @@ I've calculated the damages estimate:
                                 if resp_msg == current_msg and not turn_state["turn_complete_speech"]:
                                     # This is for the current active turn AND we haven't finished speech yet
                                     should_send = True
-                                elif resp_msg < current_msg and resp_msg <= turn_state["interrupted_at_msg"]:
-                                    # This is from an OLD interrupted turn - skip it
-                                    should_send = False
+                                elif resp_msg < current_msg:
+                                    # This could be a NEW response for a new turn (resp_msg not yet updated)
+                                    # OR an OLD interrupted response
+                                    if resp_msg <= turn_state["interrupted_at_msg"]:
+                                        # This is from an OLD interrupted turn - skip it
+                                        should_send = False
+                                    elif not turn_state["turn_complete_speech"]:
+                                        # This is a new response for a new turn - allow it
+                                        should_send = True
                                 elif turn_state["turn_complete_speech"]:
                                     # We've already completed speech for this turn - block additional audio
                                     logger.info(f"[BLOCKED AUDIO] Additional audio after speech complete")
@@ -1045,13 +1109,32 @@ I've calculated the damages estimate:
                                 # Track doc speech state
                                 in_doc_window = time.time() < turn_state["doc_processing_until"]
                                 
-                                # FIRST CHECK: During doc processing, allow only ONE response
-                                # This is the most aggressive check - blocks any second response during doc window
-                                if in_doc_window and turn_state["doc_speech_started"]:
+                                # IMMEDIATE CHECK: During doc window, if we already have first response time set,
+                                # block ANY subsequent response regardless of other flags
+                                first_response_time = turn_state.get("doc_first_response_time", 0)
+                                if in_doc_window:
+                                    if first_response_time > 0:
+                                        time_since_first = time.time() - first_response_time
+                                        existing = turn_state["response_text_sent"]
+                                        # Only allow if this is a continuation of existing response
+                                        if existing and not response_text.startswith(existing) and not existing.startswith(response_text):
+                                            logger.info(f"[BLOCKED IMMEDIATE] Second response in doc window ({time_since_first:.1f}s): '{response_text[:40]}...'")
+                                            continue
+                                    else:
+                                        # FIRST response - set the timestamp IMMEDIATELY to block parallel responses
+                                        turn_state["doc_first_response_time"] = time.time()
+                                        logger.info(f"[DOC FIRST] Set doc_first_response_time for '{response_text[:30]}...'")
+                                
+                                # SECOND CHECK: Block duplicate responses after first one
+                                # Check both during doc window AND within 15s of first response
+                                first_response_time = turn_state.get("doc_first_response_time", 0)
+                                time_since_first = time.time() - first_response_time if first_response_time > 0 else float('inf')
+                                
+                                if turn_state["doc_speech_started"] and (in_doc_window or time_since_first < 15):
                                     existing = turn_state["response_text_sent"]
                                     # Only allow if this is a continuation of existing response
                                     if not response_text.startswith(existing) and not existing.startswith(response_text):
-                                        logger.info(f"[BLOCKED DOC] Second response during doc window: '{response_text[:40]}...'")
+                                        logger.info(f"[BLOCKED DOC] Second response blocked ({time_since_first:.1f}s since first): '{response_text[:40]}...'")
                                         continue
                                 
                                 # SECOND CHECK: Block by content hash (catches parallel duplicates)
