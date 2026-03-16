@@ -103,12 +103,13 @@ export default function VoiceChat() {
   
   // Debug panel state
   const [showDebug, setShowDebug] = useState(false);
+  const [debugFilter, setDebugFilter] = useState<'all' | 'transcript' | 'decisions' | 'audio'>('all');
   const [debugLogs, setDebugLogs] = useState<{time: string; type: string; data: string}[]>([]);
-  const addDebugLog = (type: string, data: unknown) => {
+  const addDebugLog = useCallback((type: string, data: unknown) => {
     const time = new Date().toLocaleTimeString();
     const dataStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-    setDebugLogs(prev => [...prev.slice(-200), { time, type, data: dataStr }]); // Keep last 200
-  };
+    setDebugLogs(prev => [...prev.slice(-400), { time, type, data: dataStr }]); // Keep last 400
+  }, []);
   const copyDebugLogs = () => {
     const text = debugLogs.map(log => `${log.time} [${log.type}] ${log.data}`).join('\n');
     navigator.clipboard.writeText(text).then(() => {
@@ -117,6 +118,12 @@ export default function VoiceChat() {
       console.error('Failed to copy:', err);
     });
   };
+  const filteredDebugLogs = debugFilter === 'all' ? debugLogs : debugLogs.filter(log => {
+    if (debugFilter === 'transcript') return ['TRANSCRIPT', 'TRANSCRIPT_DROP', 'TRANSCRIPT_EMPTY', 'CUMUL_STRIP', 'MERGE', 'TURN_NEW', 'TURN_DROP', 'FINALIZE', 'REF_UPDATE'].includes(log.type);
+    if (debugFilter === 'decisions') return ['MERGE', 'TURN_DROP', 'TURN_NEW', 'CUMUL_STRIP', 'TRANSCRIPT_DROP', 'TRANSCRIPT_EMPTY', 'FINALIZE', 'REF_UPDATE', 'AUDIO_CLEAR'].includes(log.type);
+    if (debugFilter === 'audio') return ['AUDIO_GATE', 'AUDIO_CLEAR', 'DOC_PROCESSING', 'DOC_PROCESSING_DONE', 'DOC_PROCESSING_HOLD', 'TURN_COMPLETE', 'INTERRUPTED'].includes(log.type);
+    return true;
+  });
   
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
@@ -163,6 +170,8 @@ export default function VoiceChat() {
   const lastAcceptedTurnRef = useRef(-1);  // Which turn we're accepting responses for
   const waitingForDocRef = useRef(false);  // True when document card is showing - pauses audio
   const processingDocRef = useRef(false);  // True after doc upload - pauses audio while agent processes
+  const lastAudioGateReasonRef = useRef('');
+  const lastAudioGateLogAtRef = useRef(0);
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -226,7 +235,8 @@ export default function VoiceChat() {
   // Sync waitingForDocRef with liveDocumentRequest state
   useEffect(() => {
     waitingForDocRef.current = liveDocumentRequest !== null;
-  }, [liveDocumentRequest]);
+    addDebugLog('AUDIO_GATE', liveDocumentRequest ? 'Mic paused: waiting for document input card' : 'Document card cleared');
+  }, [liveDocumentRequest, addDebugLog]);
 
   // Stop all audio playback immediately
   const stopAudio = useCallback(() => {
@@ -273,25 +283,125 @@ export default function VoiceChat() {
     isPlayingRef.current = false;
   }, []);
 
+  const getCommonPrefixLength = useCallback((a: string, b: string) => {
+    const max = Math.min(a.length, b.length);
+    let i = 0;
+    while (i < max && a[i] === b[i]) i += 1;
+    return i;
+  }, []);
+
+  // Dedup Gemini self-duplication in final transcripts (safety net — backend also deduplicates)
+  const dedupTranscript = useCallback((text: string): string => {
+    if (text.length < 80) return text;
+    const prefixLen = Math.min(40, Math.floor(text.length / 3));
+    const prefix = text.slice(0, prefixLen);
+    const secondStart = text.indexOf(prefix, prefixLen);
+    if (secondStart > 0) {
+      const secondPartLen = text.length - secondStart;
+      if (secondPartLen >= secondStart * 0.6) {
+        return text.slice(secondStart).trim();
+      }
+    }
+    return text;
+  }, []);
+
   // Update turn with streaming content
   const updateLiveTurn = useCallback((role: 'user' | 'agent', content: string, isPartial: boolean) => {
     if (!content.trim()) return;
     
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     
+    // Collect log info outside setMessages to avoid double-logging in React strict mode
+    // (React strict mode runs updater functions twice; logging inside would duplicate every entry)
+    const pendingLogs: { type: string; data: string }[] = [];
+    
     setMessages((prev) => {
+      pendingLogs.length = 0; // Reset each invocation (strict mode may call updater twice)
+      
       // Find live turn for this role
       const liveTurnIndex = prev.findIndex((t) => t.role === role && t.isLive);
       
       if (liveTurnIndex !== -1) {
         const existing = prev[liveTurnIndex].content;
-        const newContent = isPartial 
-          ? (existing + ' ' + content).trim()
-          : content.trim();
+        let newContent = content.trim();
+        let mergeAction = 'replace'; // track which merge branch was taken
+        
+        // Dedup final transcripts before merge (Gemini self-duplication)
+        if (!isPartial && role === 'agent') {
+          const deduped = dedupTranscript(newContent);
+          if (deduped !== newContent) {
+            mergeAction = `dedup(${newContent.length}→${deduped.length})`;
+            newContent = deduped;
+          }
+        }
+        
+        if (isPartial) {
+          const trimmedExisting = existing.trim();
+          const trimmedIncoming = content.trim();
+          const commonPrefixLength = getCommonPrefixLength(trimmedExisting, trimmedIncoming);
+          
+          if (trimmedIncoming.startsWith(trimmedExisting)) {
+            // Backend sometimes sends cumulative partials.
+            newContent = trimmedIncoming;
+            mergeAction = 'cumulative_extend';
+          } else if (trimmedExisting.startsWith(trimmedIncoming)) {
+            // Older/smaller partial after a larger one: keep the larger content.
+            newContent = trimmedExisting;
+            mergeAction = 'keep_existing(shorter_incoming)';
+          } else if (
+            role === 'agent' &&
+            commonPrefixLength >= 24 &&
+            trimmedIncoming.length >= Math.max(20, Math.floor(trimmedExisting.length * 0.6))
+          ) {
+            // Gemini partials sometimes revise earlier words mid-sentence.
+            // When the new chunk clearly shares the same long prefix, treat it as
+            // a corrected snapshot of the same response rather than appending it.
+            newContent = trimmedIncoming.length >= trimmedExisting.length
+              ? trimmedIncoming
+              : trimmedExisting;
+            mergeAction = `revised_snapshot(prefix=${commonPrefixLength},kept=${newContent === trimmedIncoming ? 'incoming' : 'existing'})`;
+          } else if (trimmedExisting.includes(trimmedIncoming) && trimmedIncoming.length < 40) {
+            // Ignore tiny repeated fragments like "for uploading".
+            newContent = trimmedExisting;
+            mergeAction = `keep_existing(tiny_repeat:${trimmedIncoming.length}ch)`;
+          } else {
+            newContent = `${trimmedExisting} ${trimmedIncoming}`.trim();
+            mergeAction = 'append';
+          }
+        }
+        
+        pendingLogs.push({ type: 'MERGE', data: `${role} liveTurn[${liveTurnIndex}] ${mergeAction}: existing=${existing.length}ch→new=${newContent.length}ch "${newContent.slice(-80)}"` });
         
         return prev.map((t, i) =>
           i === liveTurnIndex ? { ...t, content: newContent, isLive: isPartial } : t
         );
+      }
+
+      if (role === 'agent' && isPartial) {
+        const lastAgentTurn = [...prev].reverse().find((t) => t.role === 'agent');
+        const trimmedIncoming = content.trim();
+        const startsLikeFragment = /^[a-z,.;:!?'" )\]]/.test(trimmedIncoming);
+        const isTinyFragment = trimmedIncoming.length < 40;
+        const alreadyCovered = !!lastAgentTurn && (
+          lastAgentTurn.content.includes(trimmedIncoming) ||
+          trimmedIncoming.includes(lastAgentTurn.content)
+        );
+        
+        // Drop stray post-response tail fragments that should not become standalone messages.
+        if ((startsLikeFragment && isTinyFragment) || alreadyCovered) {
+          pendingLogs.push({ type: 'TURN_DROP', data: `Dropped agent partial: fragment=${startsLikeFragment} tiny=${isTinyFragment} covered=${alreadyCovered} "${trimmedIncoming.slice(0, 100)}"` });
+          return prev;
+        }
+      }
+
+      if (role === 'agent' && !isPartial) {
+        // Dedup final content before comparing
+        const deduped = dedupTranscript(content.trim());
+        const lastAgentTurn = [...prev].reverse().find((t) => t.role === 'agent');
+        if (lastAgentTurn && lastAgentTurn.content.trim() === deduped) {
+          pendingLogs.push({ type: 'TURN_DROP', data: `Dropped agent final (exact dup of last turn): "${deduped.slice(0, 100)}"` });
+          return prev;
+        }
       }
 
       // No live turn - finalize other role's turn first
@@ -305,23 +415,36 @@ export default function VoiceChat() {
         );
       }
 
-      // Create new turn
+      // Create new turn (dedup if final)
+      const finalContent = (!isPartial && role === 'agent') ? dedupTranscript(content.trim()) : content.trim();
       const newTurn: ChatMessage = {
         role,
-        content: content.trim(),
+        content: finalContent,
         timestamp,
         isLive: isPartial,
       };
 
+      pendingLogs.push({ type: 'TURN_NEW', data: `${role} ${isPartial ? 'partial' : 'final'} (${finalContent.length}ch): "${finalContent.slice(0, 150)}"` });
+
       return [...updated, newTurn];
     });
-  }, []);
+    
+    // Log AFTER setMessages to avoid double-logging in React strict mode
+    pendingLogs.forEach(log => addDebugLog(log.type, log.data));
+  }, [getCommonPrefixLength, addDebugLog, dedupTranscript]);
 
   // Finalize live turn
   const finalizeLiveTurn = useCallback((role: 'user' | 'agent', captureContent = false) => {
+    let pendingLogs: { type: string; data: string }[] = [];
+    
     setMessages((prev) => {
+      pendingLogs = []; // Reset (strict mode may call twice)
+      
       const lastIndex = prev.findIndex((t) => t.role === role && t.isLive);
       if (lastIndex === -1) return prev;
+      
+      const finalContent = prev[lastIndex].content;
+      pendingLogs.push({ type: 'FINALIZE', data: `${role} turn[${lastIndex}] (${finalContent.length}ch): "${finalContent.slice(0, 200)}${finalContent.length > 200 ? '…' : ''}"` });
       
       if (role === 'agent' && captureContent) {
         const allAssistantContent = prev
@@ -329,13 +452,17 @@ export default function VoiceChat() {
           .map(t => t.content)
           .join('');
         lastAssistantContentRef.current = allAssistantContent;
+        pendingLogs.push({ type: 'REF_UPDATE', data: `lastAssistantContentRef now ${allAssistantContent.length}ch` });
       }
       
       return prev.map((t, i) =>
         i === lastIndex ? { ...t, isLive: false } : t
       );
     });
-  }, []);
+    
+    // Log AFTER setMessages to avoid double-logging in React strict mode
+    pendingLogs.forEach(log => addDebugLog(log.type, log.data));
+  }, [addDebugLog]);
 
   // Add system message
   const addSystemMessage = useCallback((content: string, icon?: 'tool' | 'success' | 'error') => {
@@ -504,11 +631,16 @@ export default function VoiceChat() {
           setStatus(msg.message || msg.content || 'Connected');
         } else if (type === 'transcript') {
           const role = msg.role === 'assistant' ? 'agent' : 'user';
-          let content = msg.content || '';
+          const rawContent = msg.content || '';
+          let content = rawContent;
           const isPartial = msg.partial !== false;
+          // Show full content (up to 300 chars) plus total length so truncation is visible
+          const displayContent = rawContent.length > 300 ? rawContent.slice(0, 300) + '…' : rawContent;
+          addDebugLog('TRANSCRIPT', `${role}:${isPartial ? 'partial' : 'final'} (${rawContent.length}ch): ${displayContent}`);
           
           // Ignore assistant transcripts after interruption
           if (role === 'agent' && interruptedRef.current) {
+            addDebugLog('TRANSCRIPT_DROP', `Dropped (interrupted): ${rawContent.slice(0, 120)}`);
             return;
           }
           
@@ -527,31 +659,52 @@ export default function VoiceChat() {
           // When a new agent response starts (not partial continuation), clear old audio
           if (role === 'agent' && !isPartial && !content.startsWith(lastAssistantContentRef.current)) {
             // This is a NEW response, not a continuation - ensure old audio is cleared
+            addDebugLog('AUDIO_CLEAR', `New non-partial agent response, clearing audio queue (${audioQueueRef.current.length} chunks)`);
             audioQueueRef.current = [];
           }
           
           // Strip cumulative content from assistant transcripts
           if (role === 'agent' && lastAssistantContentRef.current) {
             if (content.startsWith(lastAssistantContentRef.current)) {
-              content = content.slice(lastAssistantContentRef.current.length).trim();
+              const stripped = content.slice(lastAssistantContentRef.current.length).trim();
+              addDebugLog('CUMUL_STRIP', `Stripped ${lastAssistantContentRef.current.length}ch prefix → remaining ${stripped.length}ch: "${stripped.slice(0, 150)}"`);
+              content = stripped;
             }
           }
           
           if (content) {
             updateLiveTurn(role, content, isPartial);
+          } else {
+            addDebugLog('TRANSCRIPT_EMPTY', `Content empty after stripping (raw=${rawContent.length}ch, ref=${lastAssistantContentRef.current.length}ch)`);
           }
         } else if (type === 'turn_complete') {
           setStatus('Listening...');
+          addDebugLog('TURN_COMPLETE', `processing=${processingDocRef.current} waiting=${waitingForDocRef.current} audioQ=${audioQueueRef.current.length} playing=${isPlayingRef.current} interrupted=${interruptedRef.current}`);
+          // CRITICAL: Clear interrupted state on turn_complete.
+          // The turn is done — any subsequent agent speech is for a NEW turn and must be accepted.
+          // Without this, "don't have" / "later" button clicks (which send text, not speech)
+          // would leave interruptedRef=true forever since no user transcript arrives to clear it.
+          if (interruptedRef.current) {
+            interruptedRef.current = false;
+            addDebugLog('INTERRUPT_CLEAR', 'Cleared interrupted state on turn_complete');
+          }
+          finalizeLiveTurn('agent', true);
+          finalizeLiveTurn('user');
           // Resume audio after a brief grace period (prevents false interrupts from ambient noise)
           if (processingDocRef.current) {
             setTimeout(() => {
-              processingDocRef.current = false;
-              addDebugLog('TURN_COMPLETE', 'Audio resumed after grace period');
-            }, 1500); // 1.5s grace period before accepting audio input again
+              if (!waitingForDocRef.current) {
+                processingDocRef.current = false;
+                addDebugLog('DOC_PROCESSING_DONE', 'Mic resumed after assistant finished turn');
+              } else {
+                addDebugLog('DOC_PROCESSING_HOLD', 'Mic remains paused because a document card is active');
+              }
+            }, 2500); // Hold a bit longer so Lexie audio cannot trip a false interrupt
           }
         } else if (type === 'interrupted') {
           // USER INTERRUPTED! Stop everything immediately
           interruptedRef.current = true;
+          addDebugLog('INTERRUPTED', 'Received interrupt from backend');
           // Clear audio queue to prevent stale audio from playing
           audioQueueRef.current = [];
           stopAudio();
@@ -700,7 +853,19 @@ export default function VoiceChat() {
         // PAUSE audio capture when:
         // 1. Waiting for document input (card showing)
         // 2. Processing a recently uploaded document (agent analyzing)
-        if (waitingForDocRef.current || processingDocRef.current) return;
+        if (waitingForDocRef.current || processingDocRef.current) {
+          const reason = waitingForDocRef.current
+            ? 'waiting_for_document'
+            : 'processing_document_or_assistant_response';
+          const now = Date.now();
+          if (lastAudioGateReasonRef.current !== reason || now - lastAudioGateLogAtRef.current > 3000) {
+            addDebugLog('AUDIO_GATE', `Mic blocked: ${reason}`);
+            lastAudioGateReasonRef.current = reason;
+            lastAudioGateLogAtRef.current = now;
+          }
+          return;
+        }
+        lastAudioGateReasonRef.current = '';
         
         const input = e.inputBuffer.getChannelData(0);
         const int16 = new Int16Array(input.length);
@@ -718,7 +883,7 @@ export default function VoiceChat() {
       setError(e instanceof Error ? e.message : 'Failed to start');
       setStatus('Error');
     }
-  }, [addSystemMessage, finalizeLiveTurn, resetCase, startContextSession, endContextSession]);
+  }, [addDebugLog, addSystemMessage, finalizeLiveTurn, resetCase, startContextSession, endContextSession]);
 
   // Stop live session
   const stopLiveSession = useCallback(() => {
@@ -1176,9 +1341,9 @@ export default function VoiceChat() {
       
       setLiveDocResponseStatus('uploaded');
       
-      // PAUSE audio input while document is being processed
+      // PAUSE audio input while document is being processed and until the assistant finishes responding
       processingDocRef.current = true;
-      addDebugLog('DOC_PROCESSING', 'Audio paused while agent processes document');
+      addDebugLog('DOC_PROCESSING', 'Mic paused while agent processes document and prepares response');
       
       // Send document with actual file content for INSTANT extraction
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -1228,12 +1393,6 @@ export default function VoiceChat() {
         setLiveDocumentRequest(null);
         setLiveDocResponseStatus('pending');
       }, 1500);
-      
-      // Resume audio after agent has time to process and respond (5 seconds)
-      setTimeout(() => {
-        processingDocRef.current = false;
-        addDebugLog('DOC_PROCESSING_DONE', 'Audio resumed after document processing');
-      }, 5000);
     }
   };
 
@@ -1691,32 +1850,62 @@ export default function VoiceChat() {
       {/* Debug Panel */}
       {mode === 'live' && (
         <div className="mx-4 mb-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button 
               onClick={() => setShowDebug(!showDebug)}
               className="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-1"
             >
               {showDebug ? '▼' : '▶'} Debug ({debugLogs.length})
             </button>
-            {showDebug && debugLogs.length > 0 && (
-              <button
-                onClick={copyDebugLogs}
-                className="text-[10px] px-2 py-0.5 bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white rounded transition-colors"
-              >
-                📋 Copy All
-              </button>
+            {showDebug && (
+              <>
+                {debugLogs.length > 0 && (
+                  <button
+                    onClick={copyDebugLogs}
+                    className="text-[10px] px-2 py-0.5 bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white rounded transition-colors"
+                  >
+                    📋 Copy All
+                  </button>
+                )}
+                {(['all', 'transcript', 'decisions', 'audio'] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setDebugFilter(f)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                      debugFilter === f
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-700 text-gray-400 hover:bg-gray-600 hover:text-gray-200'
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </>
             )}
           </div>
           {showDebug && (
-            <div className="mt-1 p-2 bg-gray-900 rounded-lg max-h-60 overflow-y-auto font-mono text-[10px]">
-              {debugLogs.length === 0 ? (
+            <div className="mt-1 p-2 bg-gray-900 rounded-lg max-h-96 overflow-y-auto font-mono text-[10px]">
+              {filteredDebugLogs.length === 0 ? (
                 <div className="text-gray-500">No logs yet. Start a session to see debug info.</div>
               ) : (
-                debugLogs.map((log, i) => (
-                  <div key={i} className="text-gray-300 mb-1">
+                filteredDebugLogs.map((log, i) => (
+                  <div key={i} className={`mb-0.5 ${
+                    log.type.includes('DROP') || log.type.includes('EMPTY') ? 'bg-red-950/30' :
+                    log.type === 'FINALIZE' || log.type === 'REF_UPDATE' ? 'bg-yellow-950/20' :
+                    ''
+                  }`}>
                     <span className="text-gray-500">{log.time}</span>
                     {' '}
                     <span className={`font-bold ${
+                      log.type === 'TRANSCRIPT' ? 'text-cyan-400' :
+                      log.type === 'MERGE' ? 'text-teal-400' :
+                      log.type === 'TURN_NEW' ? 'text-green-400' :
+                      log.type === 'FINALIZE' ? 'text-yellow-400' :
+                      log.type === 'REF_UPDATE' ? 'text-amber-400' :
+                      log.type === 'CUMUL_STRIP' ? 'text-orange-300' :
+                      log.type === 'TURN_DROP' || log.type === 'TRANSCRIPT_DROP' || log.type === 'TRANSCRIPT_EMPTY' ? 'text-red-400' :
+                      log.type === 'AUDIO_GATE' || log.type === 'AUDIO_CLEAR' ? 'text-pink-400' :
+                      log.type === 'TURN_COMPLETE' ? 'text-indigo-400' :
                       log.type === 'SET_DOC_REQUEST' ? 'text-green-400' :
                       log.type === 'FIRST_REQUIRED' ? 'text-yellow-400' :
                       log.type === 'LIVE_UPDATE' ? 'text-blue-400' :
@@ -1726,7 +1915,7 @@ export default function VoiceChat() {
                       'text-gray-400'
                     }`}>[{log.type}]</span>
                     {' '}
-                    <span className="text-white whitespace-pre-wrap">{log.data}</span>
+                    <span className="text-white whitespace-pre-wrap break-all">{log.data}</span>
                   </div>
                 ))
               )}

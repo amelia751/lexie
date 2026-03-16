@@ -562,9 +562,9 @@ class GeminiLiveService:
                                         turn_state["batch_files_pending"] = []
                                         turn_state["batch_files_done"] = []
                                         turn_state["batch_upload_started"] = time.time()
+                                        turn_state["batch_total_expected"] = batch_total  # Track expected count
                                     
                                     if is_batch:
-                                        turn_state["batch_files_pending"].append(file_name)
                                         logger.info(f"[BATCH] File {batch_index + 1}/{batch_total}: {file_name}")
                                     
                                     # Set doc processing state - extend window for batches
@@ -705,7 +705,7 @@ class GeminiLiveService:
                                     matched_item = evidence_hub.match_file_to_evidence(file_name, doc_type)
                                     if matched_item:
                                         evidence_hub.update_evidence_status(matched_item.id, EvidenceStatus.UPLOADED)
-                                        evidence_hub.clear_currently_requested()
+                                        evidence_hub.clear_currently_requested(force=True)  # Force - actual upload
                                         logger.info(f"[DOC_UPLOAD] Marked '{matched_item.type}' as uploaded (matched from {file_name})")
                                     else:
                                         # Fall back to handle_evidence_response if no match
@@ -715,45 +715,38 @@ class GeminiLiveService:
                                     
                                     # Track batch completion
                                     import time
-                                    is_batch = len(turn_state["batch_files_pending"]) > 1
-                                    if file_name in turn_state["batch_files_pending"]:
-                                        turn_state["batch_files_pending"].remove(file_name)
-                                        turn_state["batch_files_done"].append(file_name)
+                                    batch_expected = turn_state.get("batch_total_expected", 1)
+                                    turn_state["batch_files_done"].append(file_name)
+                                    files_done = len(turn_state["batch_files_done"])
                                     
                                     # Set document processing window
-                                    turn_state["doc_processing_until"] = time.time() + (20 if is_batch else 10)
+                                    is_batch_upload = batch_expected > 1
+                                    turn_state["doc_processing_until"] = time.time() + (20 if is_batch_upload else 10)
                                     turn_state["doc_speech_started"] = False
                                     turn_state["doc_speech_finished"] = False
                                     turn_state["doc_first_response_time"] = 0  # Reset for new doc
                                     
                                     # For batch uploads, only send message when ALL files are done
-                                    if is_batch and len(turn_state["batch_files_pending"]) > 0:
-                                        # More files pending - don't tell agent yet
-                                        pending_names = ", ".join(turn_state["batch_files_pending"])
-                                        logger.info(f"[BATCH] File {file_name} done, waiting for {len(turn_state['batch_files_pending'])} more: {pending_names}")
-                                        # Just acknowledge to agent but don't ask for confirmation yet
-                                        agent_message = f"""[BATCH PROCESSING] Received {file_name}
-{extraction_summary}
-
-⚠️ MORE FILES INCOMING - DO NOT RESPOND YET:
-- Files still processing: {pending_names}
-- Silently call update_case_facts() to save the facts
-- DO NOT SPEAK until all files are received
-- Wait for [BATCH COMPLETE] message"""
+                                    if is_batch_upload and files_done < batch_expected:
+                                        # More files expected - DON'T tell agent at all, just wait silently
+                                        remaining = batch_expected - files_done
+                                        logger.info(f"[BATCH] File {file_name} done ({files_done}/{batch_expected}), waiting for {remaining} more")
+                                        # DO NOT SEND ANYTHING TO AGENT - just continue to next file
+                                        pass
                                     else:
-                                        # Single file or last file in batch - tell agent to respond
-                                        if len(turn_state["batch_files_done"]) > 1:
+                                        # Single file or last file in batch - NOW tell agent to respond
+                                        if files_done > 1:
                                             # Batch complete
                                             all_files = ", ".join(turn_state["batch_files_done"])
-                                            agent_message = f"""[BATCH COMPLETE] All {len(turn_state['batch_files_done'])} files processed: {all_files}
+                                            logger.info(f"[BATCH COMPLETE] All {files_done} files processed: {all_files}")
+                                            agent_message = f"""[BATCH COMPLETE] All {files_done} files processed: {all_files}
 {extraction_summary}
 
 ⚠️ NOW RESPOND ONCE:
 1. ALL files have been processed - facts already updated
-2. Summarize: "I've processed [N] documents. The total [key_info]. Is that correct?"
+2. Summarize: "I've processed [N] documents totaling $[amount] in medical expenses. Is that correct?"
 3. SPEAK ONCE to confirm the combined information
 4. Wait for user response before proceeding"""
-                                            turn_state["batch_files_done"] = []  # Reset
                                         else:
                                             # Single file
                                             agent_message = f"""[DOCUMENT RECEIVED] User uploaded: {file_name}
@@ -769,13 +762,19 @@ STEP 2 (MANDATORY): SPEAK to the user. Say something like:
 
 ⚠️ WARNING: The turn is NOT complete until you SPEAK to the user!
 ⚠️ You MUST verbally acknowledge the document."""
-                                    
-                                    live_request_queue.send_content(
-                                        types.Content(
-                                            role="user",
-                                            parts=[types.Part.from_text(text=agent_message)]
+                                        
+                                        logger.info(f"[DOC_MSG] Sending to agent: {agent_message[:100]}...")
+                                        live_request_queue.send_content(
+                                            types.Content(
+                                                role="user",
+                                                parts=[types.Part.from_text(text=agent_message)]
+                                            )
                                         )
-                                    )
+                                        
+                                        if files_done > 1:
+                                            # Reset batch tracking only AFTER we have queued the combined response
+                                            turn_state["batch_files_done"] = []
+                                            turn_state["batch_total_expected"] = 1
                                 
                                 elif msg_type == "text":
                                     # Text message - increment message counter
@@ -793,6 +792,7 @@ STEP 2 (MANDATORY): SPEAK to the user. Say something like:
                                         turn_state["last_response_time"] = 0
                                         turn_state["response_text_sent"] = ""
                                         turn_state["turn_complete_speech"] = False
+                                        turn_state["interrupted_at_msg"] = -1  # Old interrupt no longer relevant
                                         logger.info(f"[TEXT INPUT] Reset ALL blocking flags for: '{content[:30]}...'")
                                     
                                     # LEGACY: Detect [DOCUMENT UPLOADED] text (fallback if base64 fails)
@@ -956,9 +956,10 @@ I've calculated the damages estimate:
                     "speech_completed_at": 0,  # Timestamp of last speech completion (for blocking duplicates)
                     "sent_response_hashes": set(),  # Track hashes of sent responses to block exact duplicates
                     # Batch upload tracking
-                    "batch_files_pending": [],  # List of file names being processed in batch
+                    "batch_files_pending": [],  # Legacy - not used anymore
                     "batch_files_done": [],  # List of file names already processed
                     "batch_upload_started": 0,  # Timestamp when batch upload started
+                    "batch_total_expected": 1,  # Number of files expected in current batch
                 }
                 
                 def get_state_hash(state: dict) -> str:
@@ -985,6 +986,69 @@ I've calculated the damages estimate:
                         damages.get('settlementHigh'),
                     )
                     return hashlib.md5(str(key).encode()).hexdigest()[:8]
+
+                def dedup_final_transcript(text: str) -> str:
+                    """Remove accidental self-duplication from Gemini final transcripts.
+                    
+                    Gemini Live sometimes returns a final output_transcription that
+                    contains the full response repeated (often with small corrections
+                    in the second copy). Detect this by finding the first ~40-char
+                    prefix re-appearing later in the text and keeping only the later
+                    (corrected) copy.
+                    """
+                    text = (text or "").strip()
+                    if len(text) < 80:
+                        return text
+                    # Use first N chars as a fingerprint
+                    prefix_len = min(40, len(text) // 3)
+                    prefix = text[:prefix_len]
+                    # Look for this prefix re-appearing later
+                    second_start = text.find(prefix, prefix_len)
+                    if second_start > 0:
+                        first_part_len = second_start
+                        second_part_len = len(text) - second_start
+                        # Second part should be at least 60% of first part (real duplication, not coincidence)
+                        if second_part_len >= first_part_len * 0.6:
+                            deduped = text[second_start:].strip()
+                            logger.info(f"[DEDUP] Removed self-duplication: {len(text)}ch → {len(deduped)}ch")
+                            return deduped
+                    return text
+                
+                def merge_streamed_transcript(existing: str, incoming: str) -> str:
+                    """Merge fragmentary Gemini Live transcript chunks into one response."""
+                    existing = (existing or "").strip()
+                    incoming = (incoming or "").strip()
+                    if not existing:
+                        return incoming
+                    if not incoming:
+                        return existing
+                    if incoming.startswith(existing):
+                        # Check if the remainder is a self-duplicate of existing
+                        remainder = incoming[len(existing):].strip()
+                        if remainder and len(remainder) > 20:
+                            compare_len = min(len(existing), len(remainder), 40)
+                            if existing[:compare_len].lower() == remainder[:compare_len].lower():
+                                # Duplication detected — keep the later (corrected) version
+                                logger.info(f"[MERGE DEDUP] Incoming contains self-dup: keeping corrected copy ({len(remainder)}ch)")
+                                return remainder
+                        return incoming
+                    if existing.startswith(incoming) or incoming in existing:
+                        return existing
+                    # Gemini occasionally restarts the same sentence mid-stream.
+                    # If the new chunk clearly begins like the existing response, keep the existing text.
+                    existing_prefix = existing[: min(len(existing), 24)].lower()
+                    incoming_prefix = incoming[: min(len(incoming), 24)].lower()
+                    if existing_prefix and incoming_prefix and (
+                        existing.startswith(incoming_prefix) or incoming.startswith(existing_prefix)
+                    ):
+                        return existing if len(existing) >= len(incoming) else incoming
+                    # Merge only when there is a real suffix/prefix overlap.
+                    max_overlap = min(len(existing), len(incoming), 80)
+                    for overlap in range(max_overlap, 5, -1):
+                        if existing[-overlap:].lower() == incoming[:overlap].lower():
+                            return f"{existing}{incoming[overlap:]}".strip()
+                    joiner = "" if incoming[:1] in ",.;:!?" or existing.endswith((" ", "\n")) else " "
+                    return f"{existing}{joiner}{incoming}".strip()
                 
                 async def send_live_update_if_changed():
                     """Send live_update only if state has changed."""
@@ -1022,6 +1086,14 @@ I've calculated the damages estimate:
                             # BUT ignore interrupts during document processing window (false triggers)
                             if event.interrupted:
                                 import time
+                                if (
+                                    turn_state["turn_complete_speech"]
+                                    and turn_state["response_for_msg"] == turn_state["user_msg_count"]
+                                    and turn_state.get("speech_completed_at", 0) > 0
+                                    and (time.time() - turn_state["speech_completed_at"]) < 12.0
+                                ):
+                                    logger.info("[IGNORED] Interrupt after completed assistant turn with no new user input")
+                                    continue
                                 if time.time() < turn_state["doc_processing_until"]:
                                     # We're in document processing window - ignore this interrupt
                                     logger.info(f"[IGNORED] Interrupt during doc processing window")
@@ -1065,35 +1137,36 @@ I've calculated the damages estimate:
                                         continue
                                     # Otherwise it's continuation - allow it
                             
-                            # Handle audio content (only send audio, not text from content)
-                            # Only send audio if we're actively responding to this turn AND not interrupted
+                            # Handle audio content - send audio to client
                             if event.content and event.content.parts:
                                 current_msg = turn_state["user_msg_count"]
                                 resp_msg = turn_state["response_for_msg"]
+                                in_doc_window = time.time() < turn_state["doc_processing_until"]
+                                first_response_time = turn_state.get("doc_first_response_time", 0)
                                 
-                                # Check if this is for the current turn
-                                # Note: response_for_msg is updated by transcript handler, so audio should follow
-                                should_send = False
-                                if resp_msg == current_msg and not turn_state["turn_complete_speech"]:
-                                    # This is for the current active turn AND we haven't finished speech yet
-                                    should_send = True
-                                elif resp_msg < current_msg:
-                                    # This could be a NEW response for a new turn (resp_msg not yet updated)
-                                    # OR an OLD interrupted response
-                                    if resp_msg <= turn_state["interrupted_at_msg"]:
-                                        # This is from an OLD interrupted turn - skip it
-                                        should_send = False
-                                    elif not turn_state["turn_complete_speech"]:
-                                        # This is a new response for a new turn - allow it
-                                        should_send = True
-                                elif turn_state["turn_complete_speech"]:
-                                    # We've already completed speech for this turn - block additional audio
-                                    logger.info(f"[BLOCKED AUDIO] Additional audio after speech complete")
+                                if (
+                                    turn_state["turn_complete_speech"]
+                                    and resp_msg == current_msg
+                                    and turn_state.get("speech_completed_at", 0) > 0
+                                ):
+                                    logger.info("[BLOCKED AUDIO] Late audio chunk after speech completion for same turn")
+                                    continue
+                                
+                                should_send = True
+                                
+                                # Block audio from old interrupted turns
+                                if resp_msg >= 0 and resp_msg <= turn_state["interrupted_at_msg"]:
                                     should_send = False
+                                
+                                # During doc window, block audio only AFTER the first response has COMPLETED
+                                # (doc_speech_finished=True). This prevents duplicate/overlapping voices
+                                # without cutting off the legitimate response's own audio mid-sentence.
+                                elif in_doc_window and turn_state.get("doc_speech_finished"):
+                                    should_send = False
+                                    logger.info("[BLOCKED AUDIO] Duplicate audio after doc speech completed")
                                 
                                 if should_send:
                                     for part in event.content.parts:
-                                        # Check for inline audio data only
                                         if hasattr(part, 'inline_data') and part.inline_data:
                                             if part.inline_data.data:
                                                 await websocket.send_bytes(part.inline_data.data)
@@ -1108,22 +1181,36 @@ I've calculated the damages estimate:
                                 
                                 # Track doc speech state
                                 in_doc_window = time.time() < turn_state["doc_processing_until"]
+                                existing_text = turn_state["response_text_sent"]
                                 
-                                # IMMEDIATE CHECK: During doc window, if we already have first response time set,
-                                # block ANY subsequent response regardless of other flags
-                                first_response_time = turn_state.get("doc_first_response_time", 0)
-                                if in_doc_window:
-                                    if first_response_time > 0:
-                                        time_since_first = time.time() - first_response_time
-                                        existing = turn_state["response_text_sent"]
-                                        # Only allow if this is a continuation of existing response
-                                        if existing and not response_text.startswith(existing) and not existing.startswith(response_text):
-                                            logger.info(f"[BLOCKED IMMEDIATE] Second response in doc window ({time_since_first:.1f}s): '{response_text[:40]}...'")
-                                            continue
+                                logger.info(f"[Transcript] finished={is_finished} resp_msg={resp_msg} cur_msg={current_msg} existing={len(existing_text)}ch incoming={len(response_text)}ch text='{response_text[:120]}'")
+                                
+                                # Safety net: strip Gemini self-duplication from final transcripts
+                                if is_finished:
+                                    response_text = dedup_final_transcript(response_text)
+
+                                # Same-turn transcript chunks should be merged, not treated as alternative responses.
+                                if resp_msg == current_msg and existing_text and not turn_state["turn_complete_speech"]:
+                                    merged_text = merge_streamed_transcript(existing_text, response_text)
+                                    if merged_text != existing_text or is_finished:
+                                        turn_state["response_text_sent"] = merged_text
+                                        turn_state["last_response_time"] = time.time()
+                                        logger.info(f"[Transcript SEND merged] finished={is_finished} {len(merged_text)}ch: '{merged_text[:120]}'")
+                                        await websocket.send_json({
+                                            "type": "transcript",
+                                            "role": "assistant",
+                                            "content": merged_text,
+                                            "partial": not is_finished,
+                                        })
+                                        if is_finished:
+                                            turn_state["turn_complete_speech"] = True
+                                            turn_state["speech_completed_at"] = time.time()
+                                            logger.info(f"[Speech Complete] Final text ({len(merged_text)}ch): '{merged_text[:200]}'")
+                                            if in_doc_window:
+                                                turn_state["doc_speech_finished"] = True
                                     else:
-                                        # FIRST response - set the timestamp IMMEDIATELY to block parallel responses
-                                        turn_state["doc_first_response_time"] = time.time()
-                                        logger.info(f"[DOC FIRST] Set doc_first_response_time for '{response_text[:30]}...'")
+                                        logger.info(f"[Transcript SKIP merged] no change, finished={is_finished}")
+                                    continue
                                 
                                 # SECOND CHECK: Block duplicate responses after first one
                                 # Check both during doc window AND within 15s of first response
@@ -1181,13 +1268,6 @@ I've calculated the damages estimate:
                                         turn_state["doc_speech_started"] = True
                                         logger.info(f"[FIRST RESPONSE] Set doc_first_response_time={turn_state['doc_first_response_time']}")
                                     
-                                    # ALSO block if we recently completed speech (time-based fallback)
-                                    # Use 10s window to match doc processing window
-                                    time_since_speech = time.time() - turn_state.get("speech_completed_at", 0)
-                                    if turn_state.get("speech_completed_at", 0) > 0 and time_since_speech < 10.0:
-                                        logger.info(f"[BLOCKED] New turn too soon after speech ({time_since_speech:.1f}s)")
-                                        continue
-                                    
                                     # Check cooldown - don't start new response too quickly after previous
                                     time_since_last = time.time() - turn_state["last_response_ended"]
                                     cooldown = turn_state["response_cooldown"]
@@ -1203,7 +1283,7 @@ I've calculated the damages estimate:
                                     turn_state["last_response_time"] = time.time()  # Track when we sent this
                                     turn_state["turn_complete_speech"] = False  # New turn, allow new speech
                                     turn_state["sent_response_hashes"].add(turn_hash)  # Track this response
-                                    logger.info(f"[New Response] Starting response for turn {current_msg}")
+                                    logger.info(f"[New Response] Starting response for turn {current_msg}, finished={is_finished}, {len(response_text)}ch: '{response_text[:200]}'")
                                     
                                     # Mark speech as started during doc processing
                                     if in_doc_window:
@@ -1220,20 +1300,24 @@ I've calculated the damages estimate:
                                     if is_finished:
                                         turn_state["turn_complete_speech"] = True
                                         turn_state["speech_completed_at"] = time.time()  # Track completion time
-                                        logger.info(f"[Speech Complete] Blocking additional responses for turn {current_msg}")
+                                        logger.info(f"[Speech Complete] Final text for turn {current_msg} ({len(response_text)}ch): '{response_text[:200]}'")
                                         if in_doc_window:
                                             turn_state["doc_speech_finished"] = True
                                         
                                 elif resp_msg <= turn_state["interrupted_at_msg"]:
                                     # This is from an interrupted turn - skip it
                                     continue
-                                elif response_text.startswith(turn_state["response_text_sent"]):
+                                elif (
+                                    turn_state["response_text_sent"]
+                                    and response_text.startswith(turn_state["response_text_sent"])
+                                ):
                                     # This is a continuation of the current response (streaming)
                                     # Only send the new part
                                     new_text = response_text[len(turn_state["response_text_sent"]):]
                                     if new_text.strip():
                                         turn_state["response_text_sent"] = response_text
                                         turn_state["last_response_time"] = time.time()  # Update time
+                                        logger.info(f"[Transcript SEND continuation] finished={is_finished} +{len(new_text)}ch total={len(response_text)}ch: '...{response_text[-120:]}'")
                                         await websocket.send_json({
                                             "type": "transcript",
                                             "role": "assistant",
@@ -1245,9 +1329,16 @@ I've calculated the damages estimate:
                                         if is_finished:
                                             turn_state["turn_complete_speech"] = True
                                             turn_state["speech_completed_at"] = time.time()  # Track completion time
-                                            logger.info(f"[Speech Complete] Blocking additional responses for turn")
+                                            logger.info(f"[Speech Complete] Final text for continuation ({len(response_text)}ch): '{response_text[:200]}'")
                                             if in_doc_window:
                                                 turn_state["doc_speech_finished"] = True
+                                elif (
+                                    turn_state["turn_complete_speech"]
+                                    and resp_msg == current_msg
+                                    and turn_state.get("speech_completed_at", 0) > 0
+                                ):
+                                    logger.info(f"[BLOCKED] Late transcript fragment after speech complete: '{response_text[:50]}...'")
+                                    continue
                                 elif turn_state["turn_complete_speech"]:
                                     # We've already completed speech for this turn - block any new response
                                     logger.info(f"[BLOCKED] New response after speech complete: '{response_text[:50]}...'")
@@ -1293,6 +1384,8 @@ I've calculated the damages estimate:
                                         turn_state["speech_completed_at"] = 0  # Allow new response
                                         turn_state["last_response_time"] = 0  # Reset so new response isn't blocked
                                         turn_state["response_text_sent"] = ""  # Clear previous response
+                                        turn_state["interrupted_at_msg"] = -1  # Old interrupt no longer relevant
+                                        turn_state["turn_complete_speech"] = False  # Allow new speech
                                 
                                 await websocket.send_json({
                                     "type": "transcript",
@@ -1333,6 +1426,12 @@ I've calculated the damages estimate:
                             if event.actions:
                                 func_calls = event.get_function_calls()
                                 if func_calls:
+                                    if (
+                                        turn_state["turn_complete_speech"]
+                                        and turn_state["response_for_msg"] == turn_state["user_msg_count"]
+                                    ):
+                                        logger.info("[TOOL_SUPPRESS] Ignored tool calls after speech-complete for same turn")
+                                        continue
                                     # Initialize tool tracking if needed
                                     if "recent_tools" not in turn_state:
                                         turn_state["recent_tools"] = []

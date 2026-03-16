@@ -187,6 +187,7 @@ class EvidenceHub:
         self._case_type: Optional[str] = None
         self._session_id: Optional[str] = None
         self._currently_requested: Optional[str] = None  # ID of document being requested
+        self._request_timestamp: float = 0  # When the request was set
     
     def set_currently_requested(self, item: Optional[Union[str, 'EvidenceItem']]) -> None:
         """Set the document currently being requested (shows upload card).
@@ -194,14 +195,19 @@ class EvidenceHub:
         Args:
             item: Either an EvidenceItem object or a string item ID
         """
+        import time
         if item is None:
             self._currently_requested = None
+            self._request_timestamp = 0
         elif isinstance(item, str):
             self._currently_requested = item
+            self._request_timestamp = time.time()
         elif hasattr(item, 'id'):
             self._currently_requested = item.id
+            self._request_timestamp = time.time()
         else:
             self._currently_requested = str(item)
+            self._request_timestamp = time.time()
     
     def get_currently_requested(self) -> Optional[EvidenceItem]:
         """Get the document currently being requested."""
@@ -209,9 +215,22 @@ class EvidenceHub:
             return None
         return self.get_evidence_item(self._currently_requested)
     
-    def clear_currently_requested(self) -> None:
-        """Clear the current document request."""
+    def clear_currently_requested(self, force: bool = False) -> None:
+        """Clear the current document request.
+        
+        Args:
+            force: If True, clear regardless of timing. If False, only clear if request is > 2s old.
+        """
+        import time
+        # Don't clear if request was set very recently (within 2s)
+        # This prevents race conditions where handle_evidence_response clears a just-set request
+        if not force and self._request_timestamp > 0:
+            age = time.time() - self._request_timestamp
+            if age < 2.0:
+                return  # Don't clear - too recent
+        
         self._currently_requested = None
+        self._request_timestamp = 0
     
     def set_session(self, session_id: str) -> None:
         """Set the current session ID."""
@@ -755,6 +774,7 @@ class EvidenceHub:
         self._case_type = None
         self._session_id = None
         self._currently_requested = None
+        self._request_timestamp = 0
 
 
 # Singleton instance

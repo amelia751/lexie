@@ -114,6 +114,9 @@ def mark_evidence_pending(evidence_id: str, reason: str = "") -> dict:
         item_id=evidence_id,
         status=EvidenceStatus.PENDING
     )
+    current_item = evidence_hub.get_currently_requested()
+    if current_item and current_item.id == evidence_id:
+        evidence_hub.clear_currently_requested(force=True)
     
     return {
         "status": "success" if success else "error",
@@ -139,6 +142,9 @@ def mark_evidence_not_available(evidence_id: str, reason: str = "") -> dict:
         item_id=evidence_id,
         status=EvidenceStatus.NOT_AVAILABLE
     )
+    current_item = evidence_hub.get_currently_requested()
+    if current_item and current_item.id == evidence_id:
+        evidence_hub.clear_currently_requested(force=True)
     
     return {
         "status": "success" if success else "error",
@@ -249,7 +255,7 @@ def process_validated_upload(
         # Mark as uploaded and clear current request
         if current_request:
             evidence_hub.update_evidence_status(current_request.id, EvidenceStatus.UPLOADED)
-            evidence_hub.clear_currently_requested()
+            evidence_hub.clear_currently_requested(force=True)  # Force - actual upload
         
         # Get next item info (but DON'T auto-set it - let agent control timing)
         next_item = evidence_hub.get_next_required_evidence()
@@ -352,7 +358,7 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
     if document_uploaded:
         # User ACTUALLY uploaded via card - mark as UPLOADED and clear the card
         evidence_hub.update_evidence_status(current_item.id, EvidenceStatus.UPLOADED)
-        evidence_hub.clear_currently_requested()  # Hide the card
+        evidence_hub.clear_currently_requested(force=True)  # Force hide - actual upload
         new_status = "uploaded"
         
         return {
@@ -382,7 +388,7 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
     elif can_provide_later:
         # User will provide later - mark as PENDING and clear request
         evidence_hub.update_evidence_status(current_item.id, EvidenceStatus.PENDING)
-        evidence_hub.clear_currently_requested()
+        evidence_hub.clear_currently_requested(force=True)
         new_status = "pending"
         
         next_item = evidence_hub.get_next_required_evidence()
@@ -404,7 +410,7 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
     else:
         # User doesn't have it - mark as NOT_AVAILABLE and clear request
         evidence_hub.update_evidence_status(current_item.id, EvidenceStatus.NOT_AVAILABLE)
-        evidence_hub.clear_currently_requested()
+        evidence_hub.clear_currently_requested(force=True)
         new_status = "not_available"
         
         next_item = evidence_hub.get_next_required_evidence()
@@ -543,7 +549,8 @@ def update_case_facts(field: str, value) -> dict:
         "status": "success" if success else "error",
         "field": field,
         "value": value,
-        "message": f"Updated {field} in case file." if success else f"Failed to update {field}"
+        "message": f"Updated {field} in case file." if success else f"Failed to update {field}",
+        "next_action": "⚠️ NOW SPEAK to confirm this with the user! Say: 'I've noted that [field]. Is that correct?'"
     }
 
 
@@ -922,6 +929,13 @@ When user says "that's all", "wrap up", "calculate my settlement", or similar:
 - **NEVER** call the same tool twice in a row - SPEAK FIRST
 - **PHOTOS/IMAGES**: Just call `handle_evidence_response(has_document=True)` ONCE.
 - If you called a tool, the NEXT action MUST be speaking to user, NOT another tool call
+
+## ⚠️ MANDATORY: SPEAK AFTER DOCUMENT PROCESSING
+When you receive a [DOCUMENT RECEIVED] or [DOCUMENT UPLOADED] message:
+1. Call `update_case_facts()` 1-2 times for key facts
+2. **YOU MUST THEN SPEAK** - say "Thank you for the [document]. I see [key fact]. Is that correct?"
+3. Do NOT end the turn silently - the user is waiting for verbal confirmation
+4. If you don't speak, the user won't know you processed the document!
 
 ## ⚠️ HANDLING "I DON'T HAVE" RESPONSES:
 When user says "I don't have this", "no photos", "I can't provide that":
