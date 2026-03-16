@@ -1,3 +1,9 @@
+**Try it out:** [https://lexie-frontend-264729289350.us-central1.run.app](https://lexie-frontend-264729289350.us-central1.run.app)
+
+**Pitch Deck:** [https://pitch.com/v/lexie-presentation-7pbvx5](https://pitch.com/v/lexie-presentation-7pbvx5)
+
+---
+
 ## Inspiration
 
 ### The Problem: The Justice Gap is Getting Worse
@@ -380,4 +386,3 @@ What makes Lexie unique is not just technicality - I invested significant time e
 - **Attorney & Client Portals**: Attorney dashboard with case queue management and analytics, plaintiff self-service portal for case tracking
 - **Predictive Intelligence**: Case outcome prediction, settlement value estimation, comparative verdict research from historical data
 - **Enterprise Ready**: HIPAA compliance, case management system integrations (Clio, MyCase), white-label deployment, custom evidence checklists per firm
-
