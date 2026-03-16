@@ -184,6 +184,8 @@ class EvidenceHub:
     def __init__(self):
         self.checklist: list[EvidenceItem] = []
         self.facts = CaseFacts()
+        self.transcript: list[dict] = []  # Chat transcript [{role, content, timestamp}]
+        self.uploaded_files: list[dict] = []  # Uploaded file metadata [{id, name, size, type, status, uploadedAt}]
         self._case_type: Optional[str] = None
         self._session_id: Optional[str] = None
         self._currently_requested: Optional[str] = None  # ID of document being requested
@@ -767,10 +769,58 @@ class EvidenceHub:
             EvidencePriority.HELPFUL
         )
     
+    def add_transcript(self, role: str, content: str) -> None:
+        """Add a message to the chat transcript.
+        
+        Args:
+            role: 'user', 'agent', or 'system'
+            content: The message text
+        """
+        if not content or not content.strip():
+            return
+        self.transcript.append({
+            "role": role,
+            "content": content.strip(),
+            "timestamp": datetime.now().isoformat(),
+        })
+    
+    def add_uploaded_file(self, name: str, file_id: str = "", size: str = "", 
+                         file_type: str = "other", status: str = "processed") -> dict:
+        """Track an uploaded file for persistence.
+        
+        Args:
+            name: Original filename
+            file_id: Frontend file ID for cross-referencing
+            size: Human-readable file size
+            file_type: Category (medical, photo, insurance, police, deposition, other)
+            status: Processing status (processing, processed, error)
+        
+        Returns:
+            The file metadata dict
+        """
+        # Avoid duplicates by name
+        for f in self.uploaded_files:
+            if f["name"] == name:
+                f["status"] = status
+                return f
+        
+        file_meta = {
+            "id": file_id or f"file-{len(self.uploaded_files)}",
+            "name": name,
+            "size": size,
+            "type": file_type,
+            "status": status,
+            "uploadedAt": datetime.now().isoformat(),
+        }
+        self.uploaded_files.append(file_meta)
+        return file_meta
+    
     def reset(self) -> None:
         """Reset the hub to initial state."""
         self.checklist = []
         self.facts = CaseFacts()
+        self.transcript = []
+        self.uploaded_files = []
         self._case_type = None
         self._session_id = None
         self._currently_requested = None

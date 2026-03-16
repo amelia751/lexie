@@ -94,6 +94,12 @@ async def intake_websocket(websocket: WebSocket, client_id: str):
                 
             elif msg_type == "reset":
                 evidence_hub.reset()
+                # Delete persisted Firestore doc
+                try:
+                    from app.services.firestore_service import firestore_service, DEFAULT_CASE_ID
+                    firestore_service.delete_case(DEFAULT_CASE_ID)
+                except Exception:
+                    pass
                 session = await session_service.create_session(
                     app_name="lexie_intake",
                     user_id=client_id,
@@ -112,6 +118,9 @@ async def intake_websocket(websocket: WebSocket, client_id: str):
                 
             elif msg_type == "message":
                 content = data.get("content", "")
+                
+                # Save user message to transcript
+                evidence_hub.add_transcript("user", content)
                 
                 # Create user message
                 user_content = types.Content(
@@ -136,6 +145,7 @@ async def intake_websocket(websocket: WebSocket, client_id: str):
                                     "tool": fc.name,
                                     "args": dict(fc.args) if hasattr(fc, 'args') else {},
                                 })
+                                evidence_hub.add_transcript("system", f"Calling {fc.name}...")
                                 
                                 # Send live update after tool call
                                 new_state = get_live_data_snapshot()
@@ -152,6 +162,9 @@ async def intake_websocket(websocket: WebSocket, client_id: str):
                                 if part.text:
                                     response_text += part.text
                     
+                    # Save agent response to transcript
+                    evidence_hub.add_transcript("agent", response_text)
+                    
                     # Send agent response
                     await websocket.send_json({
                         "type": "response",
@@ -166,6 +179,13 @@ async def intake_websocket(websocket: WebSocket, client_id: str):
                             "data": new_state,
                         })
                         prev_state = new_state
+                    
+                    # Persist to Firestore (debounced)
+                    try:
+                        from app.services.firestore_service import firestore_service
+                        firestore_service.save_evidence_hub_debounced()
+                    except Exception:
+                        pass
                         
                 except Exception as e:
                     logger.error(f"Agent error: {e}")
@@ -217,6 +237,9 @@ async def intake_message(message: IntakeMessage):
             )
             active_sessions[session_key] = session
         
+        # Save user message to transcript
+        evidence_hub.add_transcript("user", message.message)
+        
         # Run agent
         user_content = types.Content(
             role="user",
@@ -234,6 +257,14 @@ async def intake_message(message: IntakeMessage):
                     if part.text:
                         response_text += part.text
         
+        # Save agent response to transcript & persist
+        evidence_hub.add_transcript("agent", response_text)
+        try:
+            from app.services.firestore_service import firestore_service
+            firestore_service.save_evidence_hub_debounced()
+        except Exception:
+            pass
+        
         return {
             "response": response_text,
             "session_id": session.id,
@@ -247,8 +278,23 @@ async def intake_message(message: IntakeMessage):
 
 @router.get("/intake/state")
 async def get_intake_state():
-    """Get current intake state (evidence hub snapshot)."""
-    return get_live_data_snapshot()
+    """Get current intake state (evidence hub snapshot + transcript).
+    
+    If in-memory state is empty, attempts to load from Firestore first.
+    Returns both the live data snapshot and the chat transcript so
+    the frontend can fully restore on page refresh.
+    """
+    if not evidence_hub.checklist:
+        try:
+            from app.services.firestore_service import firestore_service
+            firestore_service.load_into_evidence_hub()
+        except Exception:
+            pass
+    
+    snapshot = get_live_data_snapshot()
+    # Include transcript for frontend chat restoration
+    snapshot["transcript"] = evidence_hub.transcript
+    return snapshot
 
 
 @router.post("/intake/reset")
@@ -261,6 +307,14 @@ async def reset_intake(clear_corpus: bool = False):
     """
     evidence_hub.reset()
     
+    # Delete persisted case from Firestore
+    firestore_deleted = False
+    try:
+        from app.services.firestore_service import firestore_service, DEFAULT_CASE_ID
+        firestore_deleted = firestore_service.delete_case(DEFAULT_CASE_ID)
+    except Exception as e:
+        logger.warning(f"Firestore delete failed (non-fatal): {e}")
+    
     corpus_result = None
     if clear_corpus:
         from app.services.rag_service import rag_service
@@ -268,6 +322,7 @@ async def reset_intake(clear_corpus: bool = False):
     
     return {
         "status": "reset",
+        "firestore_cleared": firestore_deleted,
         "corpus_cleared": corpus_result if clear_corpus else None,
         "live_data": get_live_data_snapshot(),
     }

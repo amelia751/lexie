@@ -27,6 +27,19 @@ from app.agents.damages_agent import (
     execute_python_code,
 )
 
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+def _auto_save() -> None:
+    """Persist current evidence_hub state to Firestore after a tool call."""
+    try:
+        from app.services.firestore_service import firestore_service
+        firestore_service.save_evidence_hub_debounced()
+    except Exception as e:
+        _logger.warning(f"Firestore auto-save failed (non-fatal): {e}")
+
 
 # ==================== HUB TOOLS ====================
 
@@ -118,6 +131,9 @@ def mark_evidence_pending(evidence_id: str, reason: str = "") -> dict:
     if current_item and current_item.id == evidence_id:
         evidence_hub.clear_currently_requested(force=True)
     
+    # Persist to Firestore
+    _auto_save()
+    
     return {
         "status": "success" if success else "error",
         "evidence_id": evidence_id,
@@ -145,6 +161,9 @@ def mark_evidence_not_available(evidence_id: str, reason: str = "") -> dict:
     current_item = evidence_hub.get_currently_requested()
     if current_item and current_item.id == evidence_id:
         evidence_hub.clear_currently_requested(force=True)
+    
+    # Persist to Firestore
+    _auto_save()
     
     return {
         "status": "success" if success else "error",
@@ -361,6 +380,9 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
         evidence_hub.clear_currently_requested(force=True)  # Force hide - actual upload
         new_status = "uploaded"
         
+        # Persist to Firestore
+        _auto_save()
+        
         return {
             "status": "success",
             "processed_item": current_item.description,
@@ -391,6 +413,9 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
         evidence_hub.clear_currently_requested(force=True)
         new_status = "pending"
         
+        # Persist to Firestore
+        _auto_save()
+        
         next_item = evidence_hub.get_next_required_evidence()
         follow_up = _get_follow_up_questions(current_item.type, new_status, can_provide_later)
         
@@ -412,6 +437,9 @@ def handle_evidence_response(has_document: bool, can_provide_later: bool = False
         evidence_hub.update_evidence_status(current_item.id, EvidenceStatus.NOT_AVAILABLE)
         evidence_hub.clear_currently_requested(force=True)
         new_status = "not_available"
+        
+        # Persist to Firestore
+        _auto_save()
         
         next_item = evidence_hub.get_next_required_evidence()
         follow_up = _get_follow_up_questions(current_item.type, new_status, can_provide_later)
@@ -545,6 +573,10 @@ def update_case_facts(field: str, value) -> dict:
     """
     success = evidence_hub.update_fact(field, value)
     
+    # Persist to Firestore
+    if success:
+        _auto_save()
+    
     return {
         "status": "success" if success else "error",
         "field": field,
@@ -605,7 +637,12 @@ def initialize_case(case_type: str, session_id: str = None) -> dict:
             "evidence_items": len(evidence_hub.checklist),
         }
     
+    # Preserve transcript and uploaded files across reset (reset clears everything)
+    saved_transcript = list(evidence_hub.transcript)
+    saved_files = list(evidence_hub.uploaded_files)
     evidence_hub.reset()
+    evidence_hub.transcript = saved_transcript
+    evidence_hub.uploaded_files = saved_files
     
     if session_id:
         evidence_hub.set_session(session_id)
@@ -646,6 +683,9 @@ def initialize_case(case_type: str, session_id: str = None) -> dict:
     first_item = evidence_hub.get_next_required_evidence()
     if first_item:
         evidence_hub.set_currently_requested(first_item.id)
+    
+    # Persist to Firestore
+    _auto_save()
     
     return {
         "status": "success",
@@ -1089,6 +1129,9 @@ print(f"Range: ${{settlement_low:,.0f}} - ${{settlement_high:,.0f}}")
         settlement_low=settlement_low,
         settlement_high=settlement_high
     )
+    
+    # Persist to Firestore
+    _auto_save()
     
     return {
         "status": "success",

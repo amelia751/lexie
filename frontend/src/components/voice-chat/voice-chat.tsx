@@ -68,6 +68,19 @@ interface LiveDataSnapshot {
     description: string;
     priority: string;
   } | null;
+  transcript?: Array<{
+    role: string;
+    content: string;
+    timestamp: string;
+  }>;
+  uploadedFiles?: Array<{
+    id: string;
+    name: string;
+    size: string;
+    type: string;
+    status: string;
+    uploadedAt: string;
+  }>;
 }
 
 // Message type for unified display
@@ -190,6 +203,7 @@ export default function VoiceChat() {
     addMedicalRecord,
     updateDamages,
     setActiveTab,
+    openTab,
     evidenceItems,
     uploadedFiles,
     addUploadedFile,
@@ -216,6 +230,81 @@ export default function VoiceChat() {
   // Sync evidence context mode on initial render
   useEffect(() => {
     setEvidenceMode(mode);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore persisted state from Firestore on initial page load
+  // This runs once on mount so the user sees their previous session
+  // even before clicking the mic button.
+  const hasRestoredOnMount = useRef(false);
+  useEffect(() => {
+    if (hasRestoredOnMount.current) return;
+    hasRestoredOnMount.current = true;
+
+    const restoreOnMount = async () => {
+      try {
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+        const stateRes = await fetch(`${backendUrl}/api/v1/intake/state`);
+        if (!stateRes.ok) return;
+        const stateData: LiveDataSnapshot = await stateRes.json();
+        if (!stateData.evidenceItems || stateData.evidenceItems.length === 0) return;
+
+        // Restore case data (evidence items, facts, etc.)
+        dispatchBackendLiveUpdate(stateData);
+
+        // Restore chat transcript
+        if (stateData.transcript && stateData.transcript.length > 0) {
+          const restoredMessages: ChatMessage[] = stateData.transcript.map(t => ({
+            role: t.role === 'agent' ? 'agent' as const : t.role === 'user' ? 'user' as const : 'system' as const,
+            content: t.content,
+            timestamp: new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            isLive: false,
+            icon: t.role === 'system' ? 'tool' as const : undefined,
+          }));
+          // Add a session-interrupted marker so user knows this is restored
+          restoredMessages.push({
+            role: 'system',
+            content: '--- Session paused — click mic to continue ---',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            isLive: false,
+            icon: 'success',
+          });
+          setMessages(restoredMessages);
+        }
+
+        // Restore uploaded files in the file explorer
+        if (stateData.uploadedFiles && stateData.uploadedFiles.length > 0) {
+          for (const f of stateData.uploadedFiles) {
+            // Map backend type to frontend type
+            const typeMap: Record<string, 'medical' | 'photo' | 'insurance' | 'police' | 'deposition' | 'other'> = {
+              medical: 'medical',
+              photo: 'photo',
+              insurance: 'insurance',
+              police: 'police',
+              deposition: 'deposition',
+            };
+            addUploadedFile({
+              name: f.name,
+              size: f.size || '—',
+              type: typeMap[f.type] || 'other',
+              status: (f.status as 'processing' | 'processed' | 'error') || 'processed',
+            });
+          }
+        }
+
+        // Start the case context session so the panel shows data
+        startContextSession();
+        
+        // Open all tabs that have data (startSession only opens 'summary')
+        if (stateData.evidenceItems && stateData.evidenceItems.length > 0) openTab('evidence');
+        if (stateData.timelineEvents && stateData.timelineEvents.length > 0) openTab('timeline');
+        if (stateData.medicalRecords && stateData.medicalRecords.length > 0) openTab('medical');
+        if (stateData.damagesEstimate && Object.keys(stateData.damagesEstimate).length > 0) openTab('damages');
+      } catch {
+        // Silent fail — user hasn't started a session yet
+      }
+    };
+
+    restoreOnMount();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on unmount
@@ -291,27 +380,47 @@ export default function VoiceChat() {
   }, []);
 
   // Dedup Gemini self-duplication in final transcripts (safety net — backend also deduplicates)
-  // Handles two patterns:
+  // Handles three patterns:
   //   Pattern 1: "Hello world. Hello world." → simple prefix duplication
   //   Pattern 2: "...wrist fracture. Is that correct? Thank you...wrist fracture. Is that correct?"
   //              → partial text prepended to the full corrected version (suffix overlap)
+  //   Pattern 3: Near-duplicate with slight word variations
+  //              → "sounds very serious." vs "that sounds very serious."
   const dedupTranscript = useCallback((text: string): string => {
     if (text.length < 80) return text;
 
-    // Strategy 1: Simple prefix duplication — first ~40 chars reappear later
-    const prefixLen = Math.min(40, Math.floor(text.length / 3));
-    const prefix = text.slice(0, prefixLen);
-    const secondStart = text.indexOf(prefix, prefixLen);
-    if (secondStart > 0) {
-      const secondPartLen = text.length - secondStart;
-      if (secondPartLen >= secondStart * 0.6) {
-        return text.slice(secondStart).trim();
+    // Strategy 1: Simple prefix duplication — try multiple prefix lengths
+    // to catch cases where one char differs right at the boundary.
+    const maxPrefix = Math.min(50, Math.floor(text.length / 3));
+    for (let prefixLen = maxPrefix; prefixLen > 14; prefixLen -= 3) {
+      const prefix = text.slice(0, prefixLen);
+      const secondStart = text.indexOf(prefix, prefixLen);
+      if (secondStart > 0) {
+        const secondPartLen = text.length - secondStart;
+        if (secondPartLen >= secondStart * 0.55) {
+          return text.slice(secondStart).trim();
+        }
+      }
+    }
+
+    // Strategy 1b: Word-based prefix — first N words reappear later.
+    const words = text.split(/\s+/);
+    if (words.length > 10) {
+      for (const nWords of [6, 5, 4]) {
+        if (nWords >= words.length) continue;
+        const wordPrefix = words.slice(0, nWords).join(' ');
+        const secondStart = text.indexOf(wordPrefix, wordPrefix.length + 5);
+        if (secondStart > 0) {
+          const secondPartLen = text.length - secondStart;
+          if (secondPartLen >= secondStart * 0.55) {
+            return text.slice(secondStart).trim();
+          }
+        }
       }
     }
 
     // Strategy 2: Suffix-overlap — the partial text at the start is a SUFFIX of the full
     // corrected text that follows. Split at sentence boundaries and check.
-    // Example: "...Is that correct? Thank you for uploading...Is that correct?"
     const boundaryRegex = /[.!?]\s+/g;
     let match;
     while ((match = boundaryRegex.exec(text)) !== null) {
@@ -803,7 +912,6 @@ export default function VoiceChat() {
   // Start live session
   const startLiveSession = useCallback(async () => {
     setError(null);
-    setMessages([]);
     interruptedRef.current = false;
     lastAssistantContentRef.current = '';
     userTurnCountRef.current = 0;
@@ -813,8 +921,81 @@ export default function VoiceChat() {
     setLiveDocumentRequest(null);
     setLiveDocResponseStatus('pending');
     
-    resetCase();
+    // Check for persisted state before resetting
+    let hasPersistedState = false;
+    let persistedSnapshot: LiveDataSnapshot | null = null;
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+      const stateRes = await fetch(`${backendUrl}/api/v1/intake/state`);
+      if (stateRes.ok) {
+        const stateData: LiveDataSnapshot = await stateRes.json();
+        if (stateData.evidenceItems && stateData.evidenceItems.length > 0) {
+          hasPersistedState = true;
+          persistedSnapshot = stateData;
+          
+          // Restore case data from backend
+          dispatchBackendLiveUpdate(stateData);
+          
+          // Restore chat transcript (filter out old session markers)
+          if (stateData.transcript && stateData.transcript.length > 0) {
+            const restoredMessages: ChatMessage[] = stateData.transcript.map(t => ({
+              role: t.role === 'agent' ? 'agent' as const : t.role === 'user' ? 'user' as const : 'system' as const,
+              content: t.content,
+              timestamp: new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              isLive: false,
+              icon: t.role === 'system' ? 'tool' as const : undefined,
+            }));
+            // Add resuming marker
+            restoredMessages.push({
+              role: 'system',
+              content: '--- Resuming session ---',
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              isLive: false,
+              icon: 'success',
+            });
+            setMessages(restoredMessages);
+            addDebugLog('RESTORE', `Restored ${restoredMessages.length} messages from Firestore`);
+          } else {
+            setMessages([]);
+          }
+          
+          // Restore uploaded files
+          if (stateData.uploadedFiles && stateData.uploadedFiles.length > 0) {
+            const typeMap: Record<string, 'medical' | 'photo' | 'insurance' | 'police' | 'deposition' | 'other'> = {
+              medical: 'medical', photo: 'photo', insurance: 'insurance',
+              police: 'police', deposition: 'deposition',
+            };
+            for (const f of stateData.uploadedFiles) {
+              addUploadedFile({
+                name: f.name,
+                size: f.size || '—',
+                type: typeMap[f.type] || 'other',
+                status: (f.status as 'processing' | 'processed' | 'error') || 'processed',
+              });
+            }
+            addDebugLog('RESTORE', `Restored ${stateData.uploadedFiles.length} files`);
+          }
+          
+          addDebugLog('RESTORE', `Restored case: ${stateData.evidenceItems.length} evidence items`);
+        }
+      }
+    } catch (e) {
+      addDebugLog('RESTORE', `Failed to fetch persisted state: ${e}`);
+    }
+    
+    if (!hasPersistedState) {
+      setMessages([]);
+      resetCase();
+    }
     startContextSession();
+    
+    // Open tabs that have persisted data (startContextSession only opens 'summary')
+    if (hasPersistedState && persistedSnapshot) {
+      if (persistedSnapshot.evidenceItems && persistedSnapshot.evidenceItems.length > 0) openTab('evidence');
+      if (persistedSnapshot.timelineEvents && persistedSnapshot.timelineEvents.length > 0) openTab('timeline');
+      if (persistedSnapshot.medicalRecords && persistedSnapshot.medicalRecords.length > 0) openTab('medical');
+      if (persistedSnapshot.damagesEstimate && Object.keys(persistedSnapshot.damagesEstimate).length > 0) openTab('damages');
+    }
 
     try {
       // Request microphone access
@@ -852,9 +1033,18 @@ export default function VoiceChat() {
         finalizeLiveTurn('user');
         setIsConnected(false);
         setIsRecording(false);
-        setStatus('Disconnected');
-        addSystemMessage('--- Session ended ---');
-        endContextSession();
+        
+        if (isStoppedRef.current) {
+          // User clicked stop — show paused state
+          setStatus('Paused');
+          addSystemMessage('--- Session paused — click mic to continue ---', 'success');
+        } else {
+          // Unexpected disconnect
+          setStatus('Disconnected');
+          addSystemMessage('--- Connection lost — click mic to reconnect ---', 'error');
+        }
+        // Keep data visible — don't reset
+        isStoppedRef.current = false;
       };
 
       // Wait for connection
@@ -871,14 +1061,12 @@ export default function VoiceChat() {
 
       // Stream audio to backend — send SILENCE when mic is gated to keep
       // Gemini's audio pipeline active (critical for proper turn management).
-      // Without continuous audio, Gemini can't transition from "speaking" to
-      // "listening" mode, requiring the user to speak twice.
+      // We MUST send silence (not real mic audio) during gated states because:
+      // 1. Keeps Gemini's audio stream continuous (fixes "speak twice" issue)
+      // 2. Ambient mic noise during long processing (multi-doc uploads)
+      //    confuses Gemini's VAD, causing it to go dormant afterwards
       processor.onaudioprocess = (e) => {
         if (ws.readyState !== WebSocket.OPEN) return;
-        // When waiting for document input or processing a document,
-        // send SILENCE instead of mic audio. This prevents the agent's
-        // speaker audio from being picked up while keeping Gemini's
-        // turn management active.
         if (waitingForDocRef.current || processingDocRef.current) {
           const reason = waitingForDocRef.current
             ? 'waiting_for_document'
@@ -912,10 +1100,11 @@ export default function VoiceChat() {
       setError(e instanceof Error ? e.message : 'Failed to start');
       setStatus('Error');
     }
-  }, [addDebugLog, addSystemMessage, finalizeLiveTurn, resetCase, startContextSession, endContextSession]);
+  }, [addDebugLog, addSystemMessage, finalizeLiveTurn, resetCase, startContextSession, endContextSession, dispatchBackendLiveUpdate, addUploadedFile, openTab]);
 
-  // Stop live session
+  // Stop live session (user-initiated)
   const stopLiveSession = useCallback(() => {
+    isStoppedRef.current = true;  // Mark as intentional stop
     processorRef.current?.disconnect();
     audioContextRef.current?.close();
     mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -925,8 +1114,9 @@ export default function VoiceChat() {
     setIsConnected(false);
     setIsRecording(false);
     setStatus('Ready');
-    endContextSession();
-  }, [stopAudio, endContextSession]);
+    // Don't end context session — keep data visible
+    // endContextSession();
+  }, [stopAudio]);
 
   // Toggle live session
   const toggleLiveSession = useCallback(() => {
@@ -1581,12 +1771,18 @@ export default function VoiceChat() {
             {mode === 'live' ? (
               isConnected ? (
                 <Wifi className="w-4 h-4 text-emerald-600" />
+              ) : status === 'Paused' ? (
+                <Pause className="w-4 h-4 text-amber-500" />
               ) : (
                 <WifiOff className="w-4 h-4 text-gray-400" />
               )
             ) : null}
-            <span className="text-xs font-medium text-gray-600">
-              {mode === 'mock' ? 'Demo Mode' : isConnected ? status : 'Live Mode'}
+            <span className={`text-xs font-medium ${
+              isConnected ? 'text-gray-600' 
+              : status === 'Paused' ? 'text-amber-600' 
+              : 'text-gray-600'
+            }`}>
+              {mode === 'mock' ? 'Demo Mode' : isConnected ? status : status === 'Paused' ? 'Session Paused' : 'Disconnected'}
             </span>
             {mode === 'live' && isRecording && (
               <div className="flex items-center gap-1 text-red-500">
@@ -1598,7 +1794,7 @@ export default function VoiceChat() {
           <button
             onClick={handleModeToggle}
             disabled={isSessionActive}
-            className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="hidden flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mode === 'mock' ? (
               <>
@@ -1641,9 +1837,26 @@ export default function VoiceChat() {
                       <span>{message.content}</span>
                     </div>
                   </div>
-                ) : (message.content === '--- Session ended ---' || message.content === '--- Intake session completed ---') ? (
+                ) : (
+                  message.content === '--- Session ended ---' || 
+                  message.content === '--- Intake session completed ---' ||
+                  message.content.includes('Session paused') ||
+                  message.content.includes('Connection lost') ||
+                  message.content.includes('Resuming session')
+                ) ? (
                   <div className="flex justify-center my-4">
-                    <p className="text-xs text-gray-400 font-medium">{message.content}</p>
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
+                      message.content.includes('paused') || message.content.includes('Resuming')
+                        ? 'bg-amber-50 text-amber-600 border border-amber-200'
+                        : message.content.includes('Connection lost')
+                          ? 'bg-red-50 text-red-500 border border-red-200'
+                          : 'text-gray-400'
+                    }`}>
+                      {message.content.includes('paused') && <Pause className="w-3 h-3" />}
+                      {message.content.includes('Connection lost') && <WifiOff className="w-3 h-3" />}
+                      {message.content.includes('Resuming') && <Wifi className="w-3 h-3" />}
+                      <span>{message.content.replace(/---\s*/g, '').trim()}</span>
+                    </div>
                   </div>
                 ) : (
                   <div
@@ -2005,8 +2218,10 @@ export default function VoiceChat() {
             {liveDocumentRequest && mode === 'live' 
               ? 'Waiting for document' 
               : isSessionActive 
-                ? 'Click to end session' 
-                : 'Click to begin'}
+                ? 'Click to pause session' 
+                : messages.length > 0 
+                  ? 'Click to resume' 
+                  : 'Click to begin'}
           </p>
         </div>
       </div>

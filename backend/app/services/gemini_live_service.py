@@ -313,6 +313,45 @@ def get_live_data_snapshot() -> dict:
             "priority": current_request.priority.value,
         }
     
+    # ===== BUILD UPLOADED FILES LIST =====
+    # Derive from evidence checklist items that have been uploaded
+    uploaded_files = []
+    for item in checklist:
+        if item.document_path and item.status.value in ("uploaded", "analyzed"):
+            # Determine a file type category from the evidence type
+            type_map = {
+                "medical_records": "medical",
+                "medical_imaging": "medical",
+                "physical_therapy": "medical",
+                "billing": "medical",
+                "incident_report": "police",
+                "osha_report": "police",
+                "photos": "photo",
+                "witness_statements": "deposition",
+                "workers_comp": "insurance",
+                "insurance": "insurance",
+            }
+            file_type = "other"
+            for key, val in type_map.items():
+                if key in item.type:
+                    file_type = val
+                    break
+            
+            uploaded_files.append({
+                "id": f"file-{item.id}",
+                "name": item.document_path,
+                "size": "",  # Size not stored, show blank
+                "type": file_type,
+                "status": "processed",
+                "uploadedAt": item.uploaded_at.isoformat() if item.uploaded_at else "",
+            })
+    
+    # Also include files from evidence_hub.uploaded_files (explicit tracking)
+    for uf in evidence_hub.uploaded_files:
+        # Avoid duplicates by name
+        if not any(f["name"] == uf.get("name") for f in uploaded_files):
+            uploaded_files.append(uf)
+    
     return {
         "caseFacts": {
             "plaintiffName": plaintiff.get("name"),
@@ -339,6 +378,7 @@ def get_live_data_snapshot() -> dict:
         "damagesEstimate": damages_estimate,
         "checklistStatus": evidence_hub.get_checklist_status(),
         "currentDocumentRequest": current_doc_request,  # Document being requested (shows UI card)
+        "uploadedFiles": uploaded_files,
     }
 
 
@@ -470,6 +510,19 @@ class GeminiLiveService:
             # State persists across WebSocket reconnections
             # Reset only via explicit /intake/reset endpoint
             
+            # === FIRESTORE: Load persisted case if in-memory is empty ===
+            if not evidence_hub.checklist:
+                try:
+                    from app.services.firestore_service import firestore_service
+                    loaded = firestore_service.load_into_evidence_hub()
+                    if loaded:
+                        logger.info(f"[FIRESTORE] Restored case from Firestore for client {client_id}")
+                        context = firestore_service.build_context_summary()
+                        if context:
+                            logger.info(f"[FIRESTORE] Context summary:\n{context[:200]}...")
+                except Exception as e:
+                    logger.warning(f"[FIRESTORE] Failed to load case (non-fatal): {e}")
+            
             # Store session info
             self.active_sessions[client_id] = {
                 "runner": runner,
@@ -482,6 +535,14 @@ class GeminiLiveService:
             yield runner, session, live_request_queue
             
         finally:
+            # Save state to Firestore before cleanup (ensures no data loss on disconnect)
+            try:
+                from app.services.firestore_service import firestore_service
+                firestore_service.save_evidence_hub()
+                logger.info(f"[FIRESTORE] Saved state on session close for {client_id}")
+            except Exception as e:
+                logger.warning(f"[FIRESTORE] Failed to save on close: {e}")
+            
             # Cleanup
             if client_id in self.active_sessions:
                 del self.active_sessions[client_id]
@@ -686,6 +747,9 @@ class GeminiLiveService:
                                                 if facts.get("injury_severity"):
                                                     evidence_hub.update_fact("injury_severity", facts["injury_severity"])
                                             
+                                            # Persist extraction to transcript
+                                            evidence_hub.add_transcript("system", f"Extracted facts from {file_name} ({extraction_result.extraction_time_ms/1000:.1f}s)")
+                                            
                                             # Send extraction result to frontend
                                             await websocket.send_json({
                                                 "type": "extraction_complete",
@@ -712,6 +776,22 @@ class GeminiLiveService:
                                         from app.agents.live_agent import handle_evidence_response
                                         result = handle_evidence_response(has_document=True, document_uploaded=True)
                                         logger.info(f"[DOC_UPLOAD] No specific match, used handle_evidence_response")
+                                    
+                                    # Track uploaded file metadata for persistence
+                                    file_size = f"{len(content_b64) * 3 // 4 / 1024:.1f}KB" if content_b64 else ""
+                                    evidence_hub.add_uploaded_file(
+                                        name=file_name,
+                                        file_id=file_id,
+                                        size=file_size,
+                                        file_type=doc_type if doc_type != "document" else "other",
+                                    )
+                                    
+                                    # Persist updated state to Firestore after extraction
+                                    try:
+                                        from app.services.firestore_service import firestore_service
+                                        firestore_service.save_evidence_hub_debounced()
+                                    except Exception as fs_err:
+                                        logger.warning(f"[FIRESTORE] Post-extraction save failed: {fs_err}")
                                     
                                     # Track batch completion
                                     import time
@@ -957,6 +1037,8 @@ I've calculated the damages estimate:
                     "post_speech_tc_sent": False,  # True once we've forwarded the post-speech turn_complete
                     "speech_completed_at": 0,  # Timestamp of last speech completion (for blocking duplicates)
                     "sent_response_hashes": set(),  # Track hashes of sent responses to block exact duplicates
+                    "nudge_sent_for_msg": -1,  # Track which msg we've already nudged for (prevent repeated nudges)
+                    "tools_called_for_msg": -1,  # Track if tools were called for current msg (suppress nudge after tools)
                     # Batch upload tracking
                     "batch_files_pending": [],  # Legacy - not used anymore
                     "batch_files_done": [],  # List of file names already processed
@@ -992,26 +1074,45 @@ I've calculated the damages estimate:
                 def dedup_final_transcript(text: str) -> str:
                     """Remove accidental self-duplication from Gemini final transcripts.
                     
-                    Handles two patterns:
+                    Handles three patterns:
                       Pattern 1: "Hello world. Hello world." — simple prefix duplication
                       Pattern 2: "...wrist fracture. Is that correct? Thank you...wrist fracture. Is that correct?"
                                  — partial text prepended to the full corrected version (suffix overlap)
+                      Pattern 3: Near-duplicate with slight word variations
+                                 — "sounds very serious." vs "that sounds very serious."
                     """
                     text = (text or "").strip()
                     if len(text) < 80:
                         return text
 
-                    # Strategy 1: Simple prefix duplication — first ~40 chars reappear later
-                    prefix_len = min(40, len(text) // 3)
-                    prefix = text[:prefix_len]
-                    second_start = text.find(prefix, prefix_len)
-                    if second_start > 0:
-                        first_part_len = second_start
-                        second_part_len = len(text) - second_start
-                        if second_part_len >= first_part_len * 0.6:
-                            deduped = text[second_start:].strip()
-                            logger.info(f"[DEDUP-1] Prefix duplication: {len(text)}ch → {len(deduped)}ch")
-                            return deduped
+                    # Strategy 1: Simple prefix duplication — try multiple prefix lengths
+                    # to catch cases where one char differs right at the boundary.
+                    max_prefix = min(50, len(text) // 3)
+                    for prefix_len in range(max_prefix, 14, -3):
+                        prefix = text[:prefix_len]
+                        second_start = text.find(prefix, prefix_len)
+                        if second_start > 0:
+                            second_part_len = len(text) - second_start
+                            if second_part_len >= second_start * 0.55:
+                                deduped = text[second_start:].strip()
+                                logger.info(f"[DEDUP-1] Prefix duplication (pfx={prefix_len}ch): {len(text)}ch → {len(deduped)}ch")
+                                return deduped
+
+                    # Strategy 1b: Word-based prefix — first N words reappear later.
+                    # Catches "sounds very serious" vs "that sounds very serious" variants.
+                    words = text.split()
+                    if len(words) > 10:
+                        for n_words in [6, 5, 4]:
+                            if n_words >= len(words):
+                                continue
+                            word_prefix = " ".join(words[:n_words])
+                            second_start = text.find(word_prefix, len(word_prefix) + 5)
+                            if second_start > 0:
+                                second_part_len = len(text) - second_start
+                                if second_part_len >= second_start * 0.55:
+                                    deduped = text[second_start:].strip()
+                                    logger.info(f"[DEDUP-1b] Word prefix ({n_words}w): {len(text)}ch → {len(deduped)}ch")
+                                    return deduped
 
                     # Strategy 2: Suffix-overlap — the partial text at the start is a
                     # SUFFIX of the full corrected text that follows.
@@ -1222,6 +1323,8 @@ I've calculated the damages estimate:
                                             logger.info(f"[Speech Complete] Final text ({len(merged_text)}ch): '{merged_text[:200]}'")
                                             if in_doc_window:
                                                 turn_state["doc_speech_finished"] = True
+                                            # Persist to transcript
+                                            evidence_hub.add_transcript("agent", merged_text)
                                     else:
                                         logger.info(f"[Transcript SKIP merged] no change, finished={is_finished}")
                                     continue
@@ -1318,6 +1421,8 @@ I've calculated the damages estimate:
                                         logger.info(f"[Speech Complete] Final text for turn {current_msg} ({len(response_text)}ch): '{response_text[:200]}'")
                                         if in_doc_window:
                                             turn_state["doc_speech_finished"] = True
+                                        # Persist to transcript
+                                        evidence_hub.add_transcript("agent", response_text)
                                         
                                 elif resp_msg <= turn_state["interrupted_at_msg"]:
                                     # This is from an interrupted turn - skip it
@@ -1392,6 +1497,9 @@ I've calculated the damages estimate:
                                         turn_state["user_msg_count"] += 1
                                         logger.info(f"[User Speech Complete] msg #{turn_state['user_msg_count']}: '{speech_text[:30]}...'")
                                         
+                                        # Persist to transcript
+                                        evidence_hub.add_transcript("user", speech_text)
+                                        
                                         # Reset ALL blocking flags - allow agent to respond to this new input
                                         # This ensures verbal input (like "incorrect") gets a proper response
                                         turn_state["doc_speech_started"] = False
@@ -1435,6 +1543,30 @@ I've calculated the damages estimate:
                                     else:
                                         logger.info(f"[Turn Complete] First for msg #{current_msg}")
                                     
+                                    # NUDGE: If this is the first turn_complete for a new user
+                                    # message but the agent never spoke AND no tools were called,
+                                    # Gemini went silent. Re-prompt to continue the conversation.
+                                    # (When tools fire, Gemini will speak after tool response — no nudge needed.)
+                                    if (
+                                        is_first
+                                        and not turn_state.get("turn_complete_speech")
+                                        and current_msg > 0
+                                        and turn_state.get("nudge_sent_for_msg") != current_msg
+                                        and turn_state.get("tools_called_for_msg") != current_msg
+                                    ):
+                                        turn_state["nudge_sent_for_msg"] = current_msg
+                                        logger.info(f"[NUDGE] Agent silent after user msg #{current_msg} — re-prompting")
+                                        live_request_queue.send_content(
+                                            types.Content(
+                                                role="user",
+                                                parts=[types.Part.from_text(
+                                                    text="[System: The user just confirmed the information is correct. Please acknowledge and continue with the intake — ask about the next required evidence item or proceed to the next step.]"
+                                                )]
+                                            )
+                                        )
+                                        # Don't send turn_complete to frontend — agent will respond soon
+                                        continue
+                                    
                                     # Mark when this response ended (for cooldown)
                                     turn_state["last_response_ended"] = time.time()
                                     
@@ -1450,6 +1582,14 @@ I've calculated the damages estimate:
                                     if new_state:
                                         logger.info(f"[Turn Complete] evidence items: {len(new_state.get('evidenceItems', []))}")
                                         prev_state = new_state
+                                    
+                                    # Auto-save to Firestore (debounced) on turn completion
+                                    if is_post_speech or is_first:
+                                        try:
+                                            from app.services.firestore_service import firestore_service
+                                            firestore_service.save_evidence_hub_debounced()
+                                        except Exception as fs_err:
+                                            logger.warning(f"[FIRESTORE] Turn-complete save failed: {fs_err}")
                                 # Skip other duplicate turn_completes silently
                             
                             # Tool call events - notify frontend about tool calls
@@ -1458,6 +1598,8 @@ I've calculated the damages estimate:
                             if event.actions:
                                 func_calls = event.get_function_calls()
                                 if func_calls:
+                                    # Mark that tools were called for this user message
+                                    turn_state["tools_called_for_msg"] = turn_state["user_msg_count"]
                                     if (
                                         turn_state["turn_complete_speech"]
                                         and turn_state["response_for_msg"] == turn_state["user_msg_count"]
@@ -1503,6 +1645,8 @@ I've calculated the damages estimate:
                                             "tool": tool_name,
                                             "args": dict(fc.args) if hasattr(fc, 'args') else {},
                                         })
+                                        # Persist tool calls to transcript
+                                        evidence_hub.add_transcript("system", f"Calling {tool_name}...")
                                     
                                     # Send updated state only if it changed
                                     new_state = await send_live_update_if_changed()
@@ -1521,15 +1665,47 @@ I've calculated the damages estimate:
                     "config": self.get_session_info()["audio_config"],
                 })
                 
-                # Trigger Lexie to speak first with a greeting
-                live_request_queue.send_content(
-                    types.Content(
-                        role="user",
-                        parts=[types.Part.from_text(
-                            text="[Session started - please greet the user warmly and introduce yourself as Lexie, a legal intake assistant. Ask how you can help them today with their injury case. Do NOT assume a specific type of injury - let them tell you what happened.]"
-                        )]
+                # Check if we have a persisted case to resume
+                _resume_context = None
+                if evidence_hub.checklist:
+                    try:
+                        from app.services.firestore_service import firestore_service
+                        _resume_context = firestore_service.build_context_summary()
+                    except Exception:
+                        pass
+                
+                if _resume_context:
+                    # Resuming a previous session — inject case context
+                    logger.info(f"[RESUME] Injecting context for resumed case")
+                    live_request_queue.send_content(
+                        types.Content(
+                            role="user",
+                            parts=[types.Part.from_text(
+                                text=f"""[Session RESUMED - the user was disconnected and is reconnecting to continue their intake.]
+
+{_resume_context}
+
+Greet the user warmly, acknowledge you're picking up where you left off, and briefly summarize what you have so far. Then continue collecting the next required evidence."""
+                            )]
+                        )
                     )
-                )
+                    # Also send the current live_update so frontend restores state
+                    snapshot = get_live_data_snapshot()
+                    snapshot["transcript"] = evidence_hub.transcript
+                    await websocket.send_json({
+                        "type": "live_update",
+                        "data": snapshot,
+                    })
+                else:
+                    # Fresh session — normal greeting
+                    live_request_queue.send_content(
+                        types.Content(
+                            role="user",
+                            parts=[types.Part.from_text(
+                                text="[Session started - please greet the user warmly and introduce yourself as Lexie, a legal intake assistant. Ask how you can help them today with their injury case. Do NOT assume a specific type of injury - let them tell you what happened.]"
+                            )]
+                        )
+                    )
                 
                 # Run both tasks concurrently
                 receive_task = asyncio.create_task(receive_from_client())

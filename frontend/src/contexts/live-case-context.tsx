@@ -334,7 +334,12 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
       uploadedAt,
     };
     
-    setUploadedFiles(prev => [...prev, newFile]);
+    // Deduplicate by file name (prevents double-adding on restore)
+    setUploadedFiles(prev => {
+      const exists = prev.some(f => f.name === file.name);
+      if (exists) return prev;
+      return [...prev, newFile];
+    });
     return id;
   }, []);
 

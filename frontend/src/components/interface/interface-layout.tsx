@@ -165,7 +165,8 @@ function InterfaceLayoutInner() {
               onClick={async () => {
                 try {
                   // Reset backend state first
-                  await fetch('http://localhost:8000/api/v1/intake/reset', { method: 'POST' });
+                  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+                  await fetch(`${backendUrl}/api/v1/intake/reset`, { method: 'POST' });
                 } catch (e) {
                   console.error('Failed to reset backend:', e);
                 }

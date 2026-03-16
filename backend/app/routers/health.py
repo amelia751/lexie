@@ -24,11 +24,14 @@ async def readiness_check():
         os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
     )
     
+    # On Cloud Run, ADC works via metadata server (no file needed)
+    adc_available = credentials_ok or os.environ.get("K_SERVICE")  # K_SERVICE is set on Cloud Run
+    
     return {
-        "status": "ready" if credentials_ok else "not_ready",
+        "status": "ready" if adc_available else "not_ready",
         "checks": {
             "google_credentials": credentials_ok,
-            "gemini_model": settings.gemini_model,
+            "cloud_run_adc": bool(os.environ.get("K_SERVICE")),
             "project_id": settings.gcp_project_id,
         }
     }

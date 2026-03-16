@@ -14,23 +14,26 @@ This diagram shows how all components connect: Frontend → Backend → Google A
 
 ```mermaid
 flowchart TB
-    subgraph Frontend["🖥️ FRONTEND (Next.js 16 + React 19)"]
-        VoiceUI["🎤 Voice Chat UI<br/>• Microphone<br/>• Transcripts<br/>• Audio Player"]
-        TabCanvas["📊 Tab Canvas<br/>• Summary View<br/>• Timeline View<br/>• Medical View<br/>• Evidence View<br/>• Damages View"]
-        FileExp["📁 File Explorer<br/>• Document Upload<br/>• Provenance Tracking"]
-        LiveContext["🔄 Live Case Context<br/>• State Management<br/>• Real-time Updates<br/>• Deduplication"]
-    end
+    subgraph CloudRun["☁️ GOOGLE CLOUD RUN (Serverless Containers)"]
+        subgraph Frontend["🖥️ FRONTEND Container<br/>(Next.js 16 + React 19)"]
+            VoiceUI["🎤 Voice Chat UI<br/>• Microphone<br/>• Transcripts<br/>• Audio Player"]
+            TabCanvas["📊 Tab Canvas<br/>• Summary View<br/>• Timeline View<br/>• Medical View<br/>• Evidence View<br/>• Damages View"]
+            FileExp["📁 File Explorer<br/>• Document Upload<br/>• Provenance Tracking"]
+            LiveContext["🔄 Live Case Context<br/>• State Management<br/>• Real-time Updates<br/>• Deduplication"]
+        end
 
-    subgraph WebSocket["🔌 WEBSOCKET LAYER"]
-        WSUp["⬆️ Client → Server<br/>• Audio: 16kHz PCM<br/>• JSON: text, end_turn"]
-        WSDown["⬇️ Server → Client<br/>• Audio: 24kHz PCM<br/>• JSON: transcripts, live_update"]
-    end
+        subgraph WebSocket["🔌 WEBSOCKET LAYER"]
+            WSUp["⬆️ Client → Server<br/>• Audio: 16kHz PCM<br/>• JSON: text, end_turn"]
+            WSDown["⬇️ Server → Client<br/>• Audio: 24kHz PCM<br/>• JSON: transcripts, live_update"]
+        end
 
-    subgraph Backend["⚙️ BACKEND (FastAPI + Python 3.12)"]
-        GeminiLiveSvc["🎙️ Gemini Live Service<br/>• ADK Runner<br/>• Session Management<br/>• Audio Routing"]
-        RAGSvc["📚 RAG Service<br/>• Vertex AI RAG<br/>• Document Upload<br/>• Grounded Generation"]
-        DocProc["📄 Document Processor<br/>• Base64 Decode<br/>• Vision Extraction<br/>• Deduplication"]
-        EvidenceHub["🗄️ Evidence Hub<br/>(Singleton State)<br/>• Case Facts<br/>• Evidence Checklist<br/>• Damages<br/>• Timeline"]
+        subgraph Backend["⚙️ BACKEND Container<br/>(FastAPI + Python 3.12)"]
+            GeminiLiveSvc["🎙️ Gemini Live Service<br/>• ADK Runner<br/>• Session Management<br/>• Audio Routing"]
+            RAGSvc["📚 RAG Service<br/>• Vertex AI RAG<br/>• Document Upload<br/>• Grounded Generation"]
+            DocProc["📄 Document Processor<br/>• Base64 Decode<br/>• Vision Extraction<br/>• Deduplication"]
+            EvidenceHub["🗄️ Evidence Hub<br/>(Singleton State)<br/>• Case Facts<br/>• Evidence Checklist<br/>• Damages<br/>• Timeline"]
+            FirestoreSvc["💾 Firestore Service<br/>• save_case()<br/>• load_case()<br/>• Debounced Writes"]
+        end
     end
 
     subgraph GoogleAI["✨ GOOGLE AI PLATFORM"]
@@ -53,9 +56,9 @@ flowchart TB
         GeminiVision["👁️ Gemini Vision API<br/>(gemini-2.5-flash)<br/>• Image Analysis<br/>• Text Extraction<br/>• Safety Hazards"]
     end
 
-    subgraph Firestore["🔥 FIRESTORE (Planned)"]
-        CasesCol["📁 /cases/{caseId}/<br/>• facts<br/>• checklist/<br/>• damages<br/>• timeline/<br/>• metadata"]
-        DocsCol["📁 /documents/{docId}/<br/>• metadata<br/>• analysis<br/>• provenance"]
+    subgraph Firestore["🔥 FIRESTORE"]
+        CasesCol["📁 /cases/{caseId}/<br/>• caseType<br/>• facts (structured)<br/>• checklist (array)<br/>• transcript (array)<br/>• uploadedFiles (array)<br/>• createdAt/updatedAt"]
+        DocsCol["📁 /documents/{docId}/ (Planned)<br/>• metadata<br/>• analysis<br/>• provenance"]
     end
 
     %% Frontend connections
@@ -93,23 +96,26 @@ flowchart TB
     EvidenceAgent --> EvidenceHub
     DamagesAgent --> EvidenceHub
 
-    %% Evidence Hub to Firestore
-    EvidenceHub -.->|Persist State<br/>(Planned)| CasesCol
+    %% Evidence Hub to Firestore (via Firestore Service)
+    EvidenceHub --> FirestoreSvc
+    FirestoreSvc -->|save_evidence_hub()<br/>load_into_evidence_hub()| CasesCol
     DocProc -.->|Store Documents<br/>(Planned)| DocsCol
 
     %% Firestore to Frontend
-    CasesCol -.->|Real-time Sync<br/>(Planned)| LiveContext
+    CasesCol -->|Session Persistence<br/>• Resume on Reconnect<br/>• Context Restoration| LiveContext
     DocsCol -.->|Real-time Sync<br/>(Planned)| LiveContext
 
     %% Styling
+    classDef cloudrun fill:#F3E5F5,stroke:#7B1FA2,stroke-width:3px
     classDef frontend fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
     classDef backend fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
     classDef google fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
     classDef firestore fill:#FCE4EC,stroke:#C2185B,stroke-width:2px
     classDef planned stroke-dasharray: 5 5
 
+    class CloudRun cloudrun
     class VoiceUI,TabCanvas,FileExp,LiveContext frontend
-    class GeminiLiveSvc,RAGSvc,DocProc,EvidenceHub backend
+    class GeminiLiveSvc,RAGSvc,DocProc,EvidenceHub,FirestoreSvc backend
     class Runner,Queue,Session,RootAgent,EvidenceAgent,DamagesAgent,GeminiLive,VertexRAG,GeminiVision google
     class CasesCol,DocsCol firestore
 ```
@@ -117,22 +123,22 @@ flowchart TB
 ### Simplified Architecture Diagram (Text Version)
 
 ```
-USER INTERFACE
-    │
-    │ WebSocket (wss://)
-    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  FRONTEND (Next.js + React)                                     │
-│  • Voice Chat UI      • Tab Canvas        • File Explorer       │
-│  • Live Case Context (state management)                         │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             │ WebSocket
-                             │ Audio: 16kHz (↑) / 24kHz (↓)
-                             │ JSON: messages, live updates
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  BACKEND (FastAPI + Python)                                     │
+┌═════════════════════════════════════════════════════════════════┐
+║              ☁️  GOOGLE CLOUD RUN (Serverless)                  ║
+╠═════════════════════════════════════════════════════════════════╣
+║                                                                 ║
+║  ┌───────────────────────────────────────────────────────────┐  ║
+║  │  FRONTEND Container (Next.js + React)                     │  ║
+║  │  • Voice Chat UI      • Tab Canvas        • File Explorer │  ║
+║  │  • Live Case Context (state management)                   │  ║
+║  └─────────────────────────┬─────────────────────────────────┘  ║
+║                            │                                    ║
+║                            │ WebSocket (wss://)                 ║
+║                            │ Audio: 16kHz (↑) / 24kHz (↓)       ║
+║                            │ JSON: messages, live updates       ║
+║                            ▼                                    ║
+║  ┌───────────────────────────────────────────────────────────┐  ║
+║  │  BACKEND Container (FastAPI + Python)                     │  ║
 │  ┌───────────────────┐  ┌────────────────────────────────────┐ │
 │  │ Gemini Live Svc   │  │   Evidence Hub (Singleton)         │ │
 │  │ • ADK Runner      │──│   • Case Facts (in-memory)         │ │
@@ -140,16 +146,25 @@ USER INTERFACE
 │  │ • Session Mgmt    │  │   • Damages Estimates              │ │
 │  └───────────────────┘  │   • Timeline Events                │ │
 │                         │          │                         │ │
-│  ┌───────────────────┐  │          │ Persist       │ │
+│  ┌───────────────────┐  │          │ Persist (debounced)     │ │
 │  │ RAG Service       │  │          ▼                         │ │
 │  │ Document Processor│  │   ┌──────────────────────────┐    │ │
-│  └───────────────────┘  │   │ FIRESTORE (GCP)          │    │ │
-│                         │   │ • /cases/{id}/           │    │ │
-│                         │   │ • /documents/{id}/       │    │ │
-└─────────────────────────┴───┴──────────────────────────┴────┘ │
-                             │                                   │
-                             │ API Calls                         │
-                             ▼                                   │
+│  └───────────────────┘  │   │ Firestore Service        │    │ │
+│                         │   │ • save_case()            │    │ │
+│  ┌───────────────────┐  │   │ • load_case()            │    │ │
+│  │ FIRESTORE (GCP)   │◄─┴───│ • build_context_summary()│    │ │
+│  │ /cases/{caseId}   │      └──────────────────────────┘    │ │
+│  │ • caseType        │                                       │ │
+│  │ • facts           │                                       │ │
+│  │ • checklist       │                                       │ │
+│  │ • transcript      │                                       │ │
+║  │ • uploadedFiles   │                                       │  ║
+║  └───────────────────────────────────────────────────────────┘  ║
+║                                                                 ║
+╚═════════════════════════════════════════════════════════════════╝
+                             │
+                             │ API Calls
+                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  GOOGLE AI PLATFORM                                             │
 │                                                                 │
@@ -184,28 +199,34 @@ USER INTERFACE
 └────────────────────────────────────────────────────────────────┘
 
 
-DATA FLOW:
-1. User speaks → Frontend (16kHz audio) → WebSocket → Backend
-2. Backend → LiveRequestQueue → Gemini Live API
+DEPLOYMENT & DATA FLOW:
+• Frontend & Backend both run as containers on Google Cloud Run (serverless)
+• Containers auto-scale based on traffic, scale to zero when idle
+
+1. User speaks → Frontend Container (16kHz audio) → WebSocket → Backend Container
+2. Backend Container → LiveRequestQueue → Gemini Live API
 3. Gemini → Root Agent → Evidence/Damages Agents
 4. Agents use Vertex RAG + Vision for analysis
 5. All agents write to Evidence Hub (in-memory)
-6. Evidence Hub persists to Firestore 
-7. Firestore syncs to Frontend in real-time 
-8. Gemini returns audio (24kHz) → Frontend plays
+6. Evidence Hub persists to Firestore (debounced 1.5s)
+7. Firestore data available for session restoration
+8. Gemini returns audio (24kHz) → Frontend Container plays
 ```
 
-### Old Detailed ASCII Diagram (Reference)
+### Detailed ASCII Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                        LEXIE COMPLETE SYSTEM ARCHITECTURE                        │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
+╔═══════════════════════════════════════════════════════════════════════════════════╗
+║                    ☁️  GOOGLE CLOUD RUN (Serverless Containers)                   ║
+╠═══════════════════════════════════════════════════════════════════════════════════╣
 
 ┌───────────────────────────────────────────────────────────────────────────────────┐
-│                              FRONTEND LAYER                                       │
-│                          (Next.js 16 + React 19)                                  │
+│                         FRONTEND CONTAINER                                        │
+│                       (Next.js 16 + React 19)                                     │
 ├───────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
 │   ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐                │
@@ -237,8 +258,8 @@ DATA FLOW:
                     └───────────┬───────────┘
                                 │
 ┌───────────────────────────────▼───────────────────────────────────────────────────┐
-│                            BACKEND LAYER                                          │
-│                        (FastAPI + Python 3.12)                                    │
+│                          BACKEND CONTAINER                                        │
+│                       (FastAPI + Python 3.12)                                     │
 ├───────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
 │   ┌───────────────────────────────────────────────────────────────────────────┐  │
@@ -263,25 +284,33 @@ DATA FLOW:
 │   │   │  RAG Service        │  │  │  • Current Document Request        │  │  │  │
 │   │   │ - Vertex AI RAG     │  │  └────────────────────────────────────┘  │  │  │
 │   │   │ - Doc Upload        │  │           │                              │  │  │
-│   │   │ - Grounded Gen      │  │           │ PERSIST TO                   │  │  │
+│   │   │ - Grounded Gen      │  │           │ PERSIST VIA                  │  │  │
 │   │   └─────────────────────┘  │           ▼                              │  │  │
 │   │                            │  ┌────────────────────────────────────┐  │  │  │
-│   │   ┌─────────────────────┐  │  │  Firestore (Planned):              │  │  │  │
-│   │   │ Document Processor  │  │  │  • /cases/{caseId}/facts           │  │  │  │
-│   │   │ - Base64 Decode     │  │  │  • /cases/{caseId}/checklist/      │  │  │  │
-│   │   │ - Vision Extract    │  │  │  • /cases/{caseId}/damages         │  │  │  │
-│   │   │ - Deduplication     │  │  │  • /documents/{docId}/metadata     │  │  │  │
-│   │   └─────────────────────┘  │  │  • /documents/{docId}/analysis     │  │  │  │
-│   │                            │  │  • Real-time sync to frontend      │  │  │  │
+│   │   ┌─────────────────────┐  │  │  Firestore Service:                │  │  │  │
+│   │   │ Document Processor  │  │  │  • save_case() / load_case()       │  │  │  │
+│   │   │ - Base64 Decode     │  │  │  • save_evidence_hub_debounced()   │  │  │  │
+│   │   │ - Vision Extract    │  │  │  • load_into_evidence_hub()        │  │  │  │
+│   │   │ - Deduplication     │  │  │  • build_context_summary()         │  │  │  │
+│   │   └─────────────────────┘  │  │           ▼                        │  │  │  │
+│   │                            │  │  Cloud Firestore (GCP):            │  │  │  │
+│   │                            │  │  /cases/{caseId}/                  │  │  │  │
+│   │                            │  │    • caseType, facts, checklist    │  │  │  │
+│   │                            │  │    • transcript, uploadedFiles     │  │  │  │
+│   │                            │  │    • createdAt, updatedAt          │  │  │  │
+│   │                            │  │  Features:                         │  │  │  │
+│   │                            │  │    • Session persistence           │  │  │  │
+│   │                            │  │    • Debounced auto-save (1.5s)    │  │  │  │
+│   │                            │  │    • Context restoration           │  │  │  │
 │   │                            │  └────────────────────────────────────┘  │  │  │
 │   └───────────────────────────┴──────────────────────────────────────────────┘  │
 │                                                                                   │
-└───────────────────────────────┬───────────────────────────────────────────────────┘
-                                │
-                                │
-                        Calls Google APIs
-                                │
-                                ▼
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+╚═══════════════════════════════════════════════════════════════════════════════════╝
+                                       ║
+                                       ║ API Calls
+                                       ▼
 ┌───────────────────────────────────────────────────────────────────────────────────┐
 │                         GOOGLE AI PLATFORM                                        │
 │                        (Google Cloud Platform)                                    │
