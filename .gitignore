@@ -13,8 +13,10 @@ out/
 .env.local
 .env.*.local
 
-# Debug
+# Debug / Logs
 npm-debug.log*
+server-debug.log
+*.log
 
 # IDE
 .idea/
